@@ -6,7 +6,6 @@ use std::ptr;
 use thiserror::Error;
 
 mod sys;
-mod vfs;
 
 // Unlike eprintln!, never panics when stderr is closed; a panic here would abort inside a core callback.
 macro_rules! log {
@@ -1109,18 +1108,13 @@ unsafe extern "C" fn env_trampoline(cmd: c_uint, data: *mut c_void) -> bool {
             true
         }
         sys::RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME => true,
-        sys::RETRO_ENVIRONMENT_GET_VFS_INTERFACE => {
-            let Some(info) = (unsafe { (data as *mut vfs::retro_vfs_interface_info).as_mut() })
-            else {
-                return false;
-            };
-            if info.required_interface_version > vfs::VERSION {
-                return false;
-            }
-            info.required_interface_version = vfs::VERSION;
-            info.iface = &vfs::INTERFACE;
-            true
-        }
+        // Deliberately unanswered: cores fall back to their own file access. Our VFS
+        // answered RETRO_ENVIRONMENT_GET_VFS_INTERFACE for a while, and every core that
+        // used it to read an archive failed — FBNeo's zip reader seeks to the end of the
+        // file and then reads the end-of-central-directory record, and it never got back
+        // where it asked to be, so every romset reported "No romset found" even though
+        // the archive opened fine. Without the interface FBNeo loads its sets again.
+        // If a core ever genuinely needs a VFS, fix the seek/read semantics first.
         sys::RETRO_ENVIRONMENT_SET_ROTATION => {
             if data.is_null() {
                 return false;

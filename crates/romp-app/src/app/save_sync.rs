@@ -1,5 +1,5 @@
 use super::{on_ui, Controller};
-use crate::cores::core_for_platform;
+use crate::cores::core_for_game;
 use crate::paths;
 use crate::play::CoreIdentity;
 use crate::romm::client::{Client, Error};
@@ -102,7 +102,7 @@ impl Controller {
     }
 
     pub(super) fn game_saves(&self, detail: &GameDetail) -> Option<GameSaves> {
-        let core = core_for_platform(&detail.platform_slug)?;
+        let core = core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)?;
         let dir = paths::game_save_dir(&paths::data_dir(), &self.server(), detail.id);
         if core.id == "melondsds" {
             if let Err(e) = crate::saves::adopt_desmume_saves(&dir) {

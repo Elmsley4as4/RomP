@@ -196,6 +196,7 @@ pub fn facts(detail: &GameDetail) -> Vec<(&'static str, String)> {
         meta.average_rating
             .filter(|r| *r > 0.0)
             .map(|r| (gettext_noop!("Rating"), format!("{} / 100", r.round()))),
+        crate::cores::folder_of(&detail.fs_path).map(|folder| (gettext_noop!("Folder"), folder.to_string())),
         (detail.size_bytes > 0).then(|| (gettext_noop!("Size"), human_size(detail.size_bytes))),
     ]
     .into_iter()
@@ -243,6 +244,7 @@ mod tests {
             platform_category: Some("Console".into()),
             summary: None,
             size_bytes: 4_194_304,
+            fs_path: String::new(),
             cover_small: None,
             cover_large: None,
             local_path: None,
@@ -322,6 +324,23 @@ mod tests {
             ..RomMetadata::default()
         });
         assert_eq!(facts(&d)[0], ("Company", "Sega".to_string()));
+    }
+
+    #[test]
+    fn the_folder_a_rom_sits_in_is_shown_as_a_fact() {
+        let mut d = detail(RomMetadata::default());
+        d.fs_path = "roms/NEOGEO".into();
+        assert_eq!(
+            facts(&d),
+            [
+                ("Folder", "NEOGEO".to_string()),
+                ("Size", "4.2 MB".to_string()),
+            ]
+        );
+        d.fs_path = "roms/snes/".into();
+        assert_eq!(facts(&d)[0], ("Folder", "snes".to_string()));
+        d.fs_path = String::new();
+        assert!(!facts(&d).iter().any(|(label, _)| *label == "Folder"));
     }
 
     #[test]

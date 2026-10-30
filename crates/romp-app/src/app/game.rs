@@ -97,7 +97,7 @@ impl Controller {
     pub(super) fn show_emulator(&self, detail: &GameDetail) {
         let Some(ui) = self.ui() else { return };
         let cores = crate::cores::candidates(&detail.platform_slug);
-        let running = core_for_game(detail.id, &detail.platform_slug).map(|c| c.id);
+        let running = core_for_game(detail.id, &detail.platform_slug, &detail.fs_path).map(|c| c.id);
         let names: Vec<slint::SharedString> = cores.iter().map(|c| c.name.into()).collect();
         let current = cores
             .iter()
@@ -116,7 +116,7 @@ impl Controller {
         if cores.len() < 2 {
             return;
         }
-        let running = core_for_game(detail.id, &detail.platform_slug).map(|c| c.id);
+        let running = core_for_game(detail.id, &detail.platform_slug, &detail.fs_path).map(|c| c.id);
         let current = cores
             .iter()
             .position(|c| Some(c.id) == running)
@@ -639,7 +639,7 @@ impl Controller {
         if detail.platform_slug == rpcs3::PLATFORM {
             return self.play_with_rpcs3(detail, rom);
         }
-        let Some(core) = core_for_game(detail.id, &detail.platform_slug) else {
+        let Some(core) = core_for_game(detail.id, &detail.platform_slug, &detail.fs_path) else {
             return;
         };
         self.requested_slot.set(slot);
@@ -1066,10 +1066,10 @@ impl Controller {
         self.preparing.set(false);
         let save_dir = paths::game_save_dir(&paths::data_dir(), &self.server(), detail.id);
         let prefs = self.prefs.get();
-        let states = core_for_game(detail.id, &detail.platform_slug)
+        let states = core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)
             .is_none_or(|core| crate::cores::saves_states(core.id));
         let reliable = states
-            && core_for_game(detail.id, &detail.platform_slug)
+            && core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)
                 .is_some_and(|core| crate::cores::resumes_reliably(core.id));
         let achievements = self.achievements_launch(&detail);
         let hardcore = achievements.as_ref().is_some_and(|a| a.hardcore);
@@ -1087,9 +1087,9 @@ impl Controller {
             save_dir,
             title: detail.title.clone(),
             jit,
-            vulkan: core_for_game(detail.id, &detail.platform_slug)
+            vulkan: core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)
                 .is_some_and(|core| crate::cores::uses_vulkan(core.id)),
-            options: core_for_game(detail.id, &detail.platform_slug)
+            options: core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)
                 .map(|core| {
                     crate::cores::with_platform_options(
                         &detail.platform_slug,
@@ -1097,7 +1097,7 @@ impl Controller {
                     )
                 })
                 .unwrap_or_default(),
-            split_screens: core_for_game(detail.id, &detail.platform_slug)
+            split_screens: core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)
                 .is_some_and(|core| core.id == "melondsds"),
             gamepads: self.gamepads.clone(),
             players: self.players.clone(),
@@ -1107,9 +1107,9 @@ impl Controller {
             states,
             mappings: self.mappings.clone(),
             nintendo: crate::cores::is_nintendo(&detail.platform_slug),
-            mouse: core_for_game(detail.id, &detail.platform_slug)
+            mouse: core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)
                 .is_some_and(|core| crate::cores::uses_mouse(core.id)),
-            computer: core_for_game(detail.id, &detail.platform_slug)
+            computer: core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)
                 .is_some_and(|core| crate::cores::is_computer(core.id)),
             port_devices: self.saved_ports(detail.id),
             volume_changed: Box::new(|volume| {

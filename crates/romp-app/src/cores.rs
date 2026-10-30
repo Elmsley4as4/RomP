@@ -434,16 +434,48 @@ pub fn set_game_core(game_id: i64, slug: &str, core_id: Option<&str>) -> bool {
     true
 }
 
-/// The core that runs this particular game: its own choice if it has one, else
-/// whatever its platform runs on.
-pub fn core_for_game(game_id: i64, slug: &str) -> Option<&'static CoreInfo> {
+/// The core that runs this particular game: the one the user picked for it, else the
+/// one its library folder's romsets are built for, else whatever its platform runs on.
+pub fn core_for_game(game_id: i64, slug: &str, fs_path: &str) -> Option<&'static CoreInfo> {
     let id = CHOSEN_GAMES
         .read()
         .ok()
         .and_then(|c| c.get(&game_id).cloned());
     id.and_then(|id| candidates(slug).into_iter().find(|c| c.id == id))
+        .or_else(|| core_for_folder(fs_path, slug))
         .or_else(|| core_for_platform(slug))
 }
+
+/// The RomM library folder a rom sits in: `roms/NEOGEO/turfmast.zip` -> `NEOGEO`.
+pub fn folder_of(fs_path: &str) -> Option<&str> {
+    let path = fs_path.trim().trim_end_matches('/');
+    let folder = path.rsplit('/').next()?.trim();
+    (!folder.is_empty() && !folder.eq_ignore_ascii_case("roms")).then_some(folder)
+}
+
+/// Which core a folder's romsets belong to. RomM keeps one folder per set family
+/// (`MAME 2003-plus`, `FB Neo`, `NEOGEO`, …) while every arcade folder shares the
+/// platform slug `arcade`, so for arcade the folder says what the platform cannot.
+/// A folder that is not listed here falls back to the platform's own choice.
+const FOLDERS: &[(&[&str], &str)] = &[
+    (
+        &["mame 2003-plus", "mame 2003 plus", "mame2003-plus"],
+        "mame2003_plus",
+    ),
+    (&["fb neo", "fbneo", "fb alpha", "fba", "neogeo"], "fbneo"),
+];
+
+/// The core a rom's folder calls for, when its platform can actually run it.
+pub fn core_for_folder(fs_path: &str, slug: &str) -> Option<&'static CoreInfo> {
+    let folder = folder_of(fs_path)?;
+    let id = FOLDERS.iter().find(|(names, _)| {
+        names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(folder))
+    })?;
+    candidates(slug).into_iter().find(|c| c.id == id.1)
+}
+
 
 const NINTENDO: [&str; 11] = [
     "nes",
@@ -928,13 +960,13 @@ mod core_choice_tests {
         // RomM's arcade folders mix sets: Gang Wars is a FBNeo set in a
         // MAME 2003-Plus library, so the game overrides its platform.
         assert!(set_game_core(292, "arcade", Some("fbneo")));
-        assert_eq!(core_for_game(292, "arcade").unwrap().id, "fbneo");
+        assert_eq!(core_for_game(292, "arcade", "roms/MAME 2003-plus").unwrap().id, "fbneo");
         // Other games on the platform are untouched.
-        assert_eq!(core_for_game(391, "arcade").unwrap().id, "mame2003_plus");
+        assert_eq!(core_for_game(391, "arcade", "roms/MAME 2003-plus").unwrap().id, "mame2003_plus");
         // A core the platform cannot run is refused.
         assert!(!set_game_core(292, "arcade", Some("dolphin")));
         assert!(set_game_core(292, "arcade", None));
-        assert_eq!(core_for_game(292, "arcade").unwrap().id, "mame2003_plus");
+        assert_eq!(core_for_game(292, "arcade", "roms/MAME 2003-plus").unwrap().id, "mame2003_plus");
     }
 
     #[test]
@@ -943,10 +975,65 @@ mod core_choice_tests {
         assert!(set_game_core(292, "arcade", Some("fbneo")));
         let json = game_choices_json();
         load_game_choices(None);
-        assert_eq!(core_for_game(292, "arcade").unwrap().id, "mame2003_plus");
+        assert_eq!(core_for_game(292, "arcade", "roms/MAME 2003-plus").unwrap().id, "mame2003_plus");
         load_game_choices(Some(&json));
-        assert_eq!(core_for_game(292, "arcade").unwrap().id, "fbneo");
+        assert_eq!(core_for_game(292, "arcade", "roms/MAME 2003-plus").unwrap().id, "fbneo");
         load_game_choices(None);
+    }
+
+    #[test]
+    fn a_roms_folder_picks_the_core_its_sets_belong_to() {
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        load_game_choices(None);
+        // RomM's arcade folders are separate set families behind one `arcade` slug:
+        // NEOGEO holds FBNeo's dumps, so it must not fall back to MAME 2003-Plus.
+        assert_eq!(
+            core_for_game(1306, "arcade", "roms/NEOGEO").unwrap().id,
+            "fbneo"
+        );
+        assert_eq!(
+            core_for_game(1163, "arcade", "roms/MAME 2003-plus")
+                .unwrap()
+                .id,
+            "mame2003_plus"
+        );
+        // A folder nobody has classified leaves the platform's own choice alone.
+        assert_eq!(
+            core_for_game(1941, "arcade", "roms/CPS1").unwrap().id,
+            "mame2003_plus"
+        );
+        // The rule never routes a platform to a core it cannot run.
+        assert_eq!(core_for_game(7, "snes", "roms/NEOGEO").unwrap().id, "snes9x");
+    }
+
+    #[test]
+    fn a_hand_picked_core_beats_the_folder() {
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            core_for_game(1306, "arcade", "roms/NEOGEO").unwrap().id,
+            "fbneo"
+        );
+        assert!(set_game_core(1306, "arcade", Some("mame2003_plus")));
+        assert_eq!(
+            core_for_game(1306, "arcade", "roms/NEOGEO").unwrap().id,
+            "mame2003_plus"
+        );
+        assert!(set_game_core(1306, "arcade", None));
+        assert_eq!(
+            core_for_game(1306, "arcade", "roms/NEOGEO").unwrap().id,
+            "fbneo",
+            "clearing the choice returns the game to its folder's core"
+        );
+    }
+
+    #[test]
+    fn folder_of_names_the_library_folder() {
+        assert_eq!(folder_of("roms/NEOGEO"), Some("NEOGEO"));
+        assert_eq!(folder_of("roms/MAME 2003-plus/"), Some("MAME 2003-plus"));
+        assert_eq!(folder_of(" ROMS - Favourites/roms/FB Neo "), Some("FB Neo"));
+        assert_eq!(folder_of("roms/"), None);
+        assert_eq!(folder_of(""), None);
+        assert_eq!(folder_of("roms"), None);
     }
 
     #[test]

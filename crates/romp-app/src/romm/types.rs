@@ -180,6 +180,10 @@ pub struct Rom {
     pub platform_id: i64,
     pub name: Option<String>,
     pub fs_name: String,
+    /// The library folder the file sits in, e.g. `roms/NEOGEO` — RomM keeps one folder
+    /// per romset family, which is what tells arcade sets apart.
+    #[serde(default)]
+    pub fs_path: String,
     pub summary: Option<String>,
     pub updated_at: String,
     pub path_cover_small: Option<String>,
@@ -313,6 +317,7 @@ pub(crate) fn rom(id: i64, platform_id: i64, name: &str, updated_at: &str) -> Ro
         platform_id,
         name: Some(name.into()),
         fs_name: format!("{name}.bin"),
+        fs_path: format!("roms/{platform_id}"),
         summary: None,
         updated_at: updated_at.into(),
         path_cover_small: Some(format!(

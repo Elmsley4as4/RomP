@@ -99,7 +99,7 @@ impl Controller {
             _ => None,
         };
         // An emulator whose states don't bring a game back gets no state slots, only its save.
-        let states = crate::cores::core_for_platform(&detail.platform_slug)
+        let states = crate::cores::core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)
             .is_none_or(|core| crate::cores::saves_states(core.id));
         let state_slots = if states {
             slots::read(&dir, slots::AUTO..=crate::input::SLOTS)

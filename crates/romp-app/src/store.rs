@@ -45,6 +45,9 @@ pub struct GameDetail {
     pub platform_category: Option<String>,
     pub summary: Option<String>,
     pub size_bytes: i64,
+    /// Where the file sits in RomM's library, e.g. `roms/NEOGEO` — the folder names the
+    /// romset family, which is what picks the core for arcade games.
+    pub fs_path: String,
     pub cover_small: Option<String>,
     pub cover_large: Option<String>,
     pub local_path: Option<String>,
@@ -255,6 +258,15 @@ impl Store {
                  COMMIT;",
             )?;
         }
+        if version < 12 {
+            conn.execute_batch(
+                "BEGIN;
+                 ALTER TABLE games ADD COLUMN fs_path TEXT;
+                 DELETE FROM kv WHERE key = 'last_sync_at';
+                 PRAGMA user_version = 12;
+                 COMMIT;",
+            )?;
+        }
         Ok(Self { conn })
     }
 
@@ -307,14 +319,15 @@ impl Store {
             tx.execute(
                 "INSERT INTO games
                  (id, platform_id, title, summary, updated_at, cover_small, cover_large, size_bytes,
-                  meta, screenshots, added_at, last_played)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                  meta, screenshots, added_at, last_played, fs_path)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(id) DO UPDATE SET
                    platform_id = excluded.platform_id, title = excluded.title,
                    summary = excluded.summary, updated_at = excluded.updated_at,
                    cover_small = excluded.cover_small, cover_large = excluded.cover_large,
                    size_bytes = excluded.size_bytes, meta = excluded.meta,
                    screenshots = excluded.screenshots, added_at = excluded.added_at,
+                   fs_path = excluded.fs_path,
                    last_played = NULLIF(MAX(COALESCE(last_played, 0),
                                             COALESCE(excluded.last_played, 0)), 0)",
                 params![
@@ -331,7 +344,8 @@ impl Store {
                         .and_then(|m| serde_json::to_string(m).ok()),
                     serde_json::to_string(&r.merged_screenshots).ok(),
                     r.added_at(),
-                    r.last_played()
+                    r.last_played(),
+                    r.fs_path
                 ],
             )
             .expect("upsert game");
@@ -625,7 +639,7 @@ impl Store {
             .query_row(
                 "SELECT g.id, g.title, g.platform_id, COALESCE(p.slug, ''), COALESCE(p.name, ''),
                         g.summary, g.size_bytes, g.cover_small, g.cover_large, g.local_path,
-                        p.category, g.meta, g.screenshots
+                        p.category, g.meta, g.screenshots, COALESCE(g.fs_path, '')
                  FROM games g LEFT JOIN platforms p ON p.id = g.platform_id WHERE g.id = ?1",
                 [id],
                 |r| {
@@ -643,6 +657,7 @@ impl Store {
                         platform_category: r.get(10)?,
                         meta: json_column(r.get(11)?),
                         screenshots: json_column(r.get(12)?),
+                        fs_path: r.get(13)?,
                     })
                 },
             )
@@ -1114,6 +1129,20 @@ mod tests {
     }
 
     #[test]
+    fn the_library_folder_follows_a_resync() {
+        let mut s = Store::open_in_memory().unwrap();
+        let mut stored = rom(1306, 18, "Neo Turf Masters", "t");
+        stored.fs_path = "roms/NEOGEO".into();
+        s.upsert_games(&[stored]);
+        assert_eq!(s.game(1306).unwrap().fs_path, "roms/NEOGEO");
+        // Moving the file in RomM moves the folder the app reads for the core choice.
+        let mut moved = rom(1306, 18, "Neo Turf Masters", "t2");
+        moved.fs_path = "roms/MAME 2003-plus".into();
+        s.upsert_games(&[moved]);
+        assert_eq!(s.game(1306).unwrap().fs_path, "roms/MAME 2003-plus");
+    }
+
+    #[test]
     fn retain_keeps_downloaded_games() {
         let mut s = seeded();
         s.set_local_path(11, Some("/x"));
@@ -1354,6 +1383,7 @@ mod tests {
                 .execute_batch(
                     "ALTER TABLE games DROP COLUMN meta; ALTER TABLE games DROP COLUMN screenshots;
                      ALTER TABLE games DROP COLUMN added_at; ALTER TABLE games DROP COLUMN last_played;
+                     ALTER TABLE games DROP COLUMN fs_path;
                      ALTER TABLE platforms DROP COLUMN category;
                      ALTER TABLE platforms DROP COLUMN aliases; PRAGMA user_version = 2;",
                 )
