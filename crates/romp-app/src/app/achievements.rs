@@ -1,6 +1,6 @@
 use super::{on_ui, Controller};
 use crate::achievements::{self, popups::Launch, Account};
-use crate::credentials::{Keychain, TokenStore};
+use crate::credentials::{StoredTokens, TokenStore};
 use crate::store::GameDetail;
 use crate::AchievementRow;
 use romp_proto::msg::AchievementInfo;
@@ -10,9 +10,14 @@ const USER_KEY: &str = "ra_username";
 const HARDCORE_KEY: &str = "ra_hardcore";
 
 impl Controller {
+    /// RetroAchievements keys, kept in the app's own store (see StoredTokens).
+    fn ra_tokens(&self) -> StoredTokens {
+        StoredTokens::with_prefix(self.shared.store.clone(), "ra_token")
+    }
+
     pub(super) fn ra_account(&self) -> Option<Account> {
         let username = self.shared.store.lock().unwrap().get(USER_KEY)?;
-        let token = Keychain::retro_achievements().load(&username)?;
+        let token = self.ra_tokens().load(&username)?;
         Some(Account { username, token })
     }
 
@@ -143,7 +148,7 @@ impl Controller {
         ui.set_ra_password_input("".into());
         let signed_in = result.is_ok();
         match result.and_then(|account| {
-            Keychain::retro_achievements().save(&account.username, &account.token)?;
+            self.ra_tokens().save(&account.username, &account.token)?;
             self.shared
                 .store
                 .lock()
@@ -163,7 +168,7 @@ impl Controller {
 
     pub(super) fn ra_sign_out(&self) {
         if let Some(account) = self.ra_account() {
-            Keychain::retro_achievements().delete(&account.username);
+            self.ra_tokens().delete(&account.username);
         }
         self.shared.store.lock().unwrap().remove(USER_KEY);
         if let Some(ui) = self.ui() {

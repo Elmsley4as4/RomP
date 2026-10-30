@@ -1,75 +1,62 @@
+//! Where the app's secrets live.
+
 pub trait TokenStore: Send + Sync {
     fn load(&self, server: &str) -> Option<String>;
     fn save(&self, server: &str, token: &str) -> Result<(), String>;
     fn delete(&self, server: &str);
 }
 
-pub struct Keychain {
-    service: &'static str,
+/// Keeps sign-ins in the app's own store, not in the login keychain.
+///
+/// A keychain item is handed only to an app with the same code identity that
+/// created it, so a changed bundle id or signing certificate turns the next read
+/// into an "enter your login keychain password" dialog. Nobody using the app can
+/// answer that, the app cannot suppress it, and clearing the item needs the same
+/// authorisation — so tokens live in romp.db instead, beside the server URL and
+/// the library, readable by this user account only.
+pub struct StoredTokens {
+    store: std::sync::Arc<std::sync::Mutex<crate::store::Store>>,
+    prefix: &'static str,
 }
 
-impl Keychain {
-    pub fn retro_achievements() -> Keychain {
-        Keychain {
-            service: "Romp RetroAchievements",
-        }
+impl StoredTokens {
+    /// The RomM sign-in, keyed by server URL.
+    pub fn new(store: std::sync::Arc<std::sync::Mutex<crate::store::Store>>) -> Self {
+        Self::with_prefix(store, "romm_token")
     }
 
-    pub fn app() -> Migrating<Keychain, Keychain> {
-        Migrating {
-            current: Keychain { service: "Romp" },
-            legacy: Keychain {
-                service: "Cartridge",
-            },
-        }
+    /// Any other sign-in, keyed by account name.
+    pub fn with_prefix(
+        store: std::sync::Arc<std::sync::Mutex<crate::store::Store>>,
+        prefix: &'static str,
+    ) -> Self {
+        Self { store, prefix }
+    }
+
+    fn key(&self, account: &str) -> String {
+        format!("{}:{}", self.prefix, account)
     }
 }
 
-impl TokenStore for Keychain {
+impl TokenStore for StoredTokens {
     fn load(&self, server: &str) -> Option<String> {
-        keyring::Entry::new(self.service, server)
-            .ok()?
-            .get_password()
-            .ok()
+        let token = self.store.lock().ok()?.get(&self.key(server))?;
+        (!token.is_empty()).then_some(token)
     }
 
     fn save(&self, server: &str, token: &str) -> Result<(), String> {
-        keyring::Entry::new(self.service, server)
-            .and_then(|e| e.set_password(token))
-            .map_err(|e| tr::tr!("Could not store the sign-in in the keychain: {e}", e))
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| "The library store is locked.".to_string())?;
+        store.set(&self.key(server), token);
+        Ok(())
     }
 
     fn delete(&self, server: &str) {
-        if let Ok(entry) = keyring::Entry::new(self.service, server) {
-            let _ = entry.delete_credential();
+        if let Ok(store) = self.store.lock() {
+            store.remove(&self.key(server));
         }
-    }
-}
-
-pub struct Migrating<C, L> {
-    current: C,
-    legacy: L,
-}
-
-impl<C: TokenStore, L: TokenStore> TokenStore for Migrating<C, L> {
-    fn load(&self, server: &str) -> Option<String> {
-        if let Some(token) = self.current.load(server) {
-            return Some(token);
-        }
-        let token = self.legacy.load(server)?;
-        if self.current.save(server, &token).is_ok() {
-            self.legacy.delete(server);
-        }
-        Some(token)
-    }
-
-    fn save(&self, server: &str, token: &str) -> Result<(), String> {
-        self.current.save(server, token)
-    }
-
-    fn delete(&self, server: &str) {
-        self.current.delete(server);
-        self.legacy.delete(server);
     }
 }
 
@@ -95,21 +82,55 @@ impl TokenStore for MemoryTokens {
 mod tests {
     use super::*;
 
+    fn shared_store() -> std::sync::Arc<std::sync::Mutex<crate::store::Store>> {
+        std::sync::Arc::new(std::sync::Mutex::new(
+            crate::store::Store::open_in_memory().unwrap(),
+        ))
+    }
+
     #[test]
-    fn a_sign_in_saved_under_the_old_name_moves_to_the_new_one() {
-        let tokens = Migrating {
-            current: MemoryTokens::default(),
-            legacy: MemoryTokens::default(),
-        };
-        tokens.legacy.save("http://a/", "old").unwrap();
-        assert_eq!(tokens.load("http://a/").as_deref(), Some("old"));
-        assert_eq!(tokens.current.load("http://a/").as_deref(), Some("old"));
-        assert_eq!(tokens.legacy.load("http://a/"), None);
-        tokens.save("http://a/", "new").unwrap();
-        assert_eq!(tokens.load("http://a/").as_deref(), Some("new"));
-        tokens.legacy.save("http://a/", "stale").unwrap();
-        tokens.delete("http://a/");
-        assert_eq!(tokens.load("http://a/"), None);
+    fn the_sign_in_lives_in_the_store_not_the_keychain() {
+        let store = shared_store();
+        let tokens = StoredTokens::new(store.clone());
+        assert_eq!(tokens.load("http://192.168.3.7:3020/"), None);
+        tokens.save("http://192.168.3.7:3020/", "token").unwrap();
+        assert_eq!(
+            tokens.load("http://192.168.3.7:3020/").as_deref(),
+            Some("token")
+        );
+        // Per server, and stored where a re-sign cannot take it away.
+        assert_eq!(tokens.load("http://other/"), None);
+        assert_eq!(
+            store
+                .lock()
+                .unwrap()
+                .get("romm_token:http://192.168.3.7:3020/"),
+            Some("token".to_string())
+        );
+        tokens.delete("http://192.168.3.7:3020/");
+        assert_eq!(tokens.load("http://192.168.3.7:3020/"), None);
+    }
+
+    #[test]
+    fn each_kind_of_sign_in_keeps_its_own_keys() {
+        let store = shared_store();
+        let romm = StoredTokens::new(store.clone());
+        let achievements = StoredTokens::with_prefix(store.clone(), "ra_token");
+        romm.save("http://a/", "romm").unwrap();
+        achievements.save("a", "ra").unwrap();
+        assert_eq!(romm.load("a"), None);
+        assert_eq!(achievements.load("http://a/"), None);
+        assert_eq!(romm.load("http://a/").as_deref(), Some("romm"));
+        assert_eq!(achievements.load("a").as_deref(), Some("ra"));
+        achievements.delete("a");
+        assert_eq!(romm.load("http://a/").as_deref(), Some("romm"));
+    }
+
+    #[test]
+    fn an_empty_token_reads_as_signed_out() {
+        let store = shared_store();
+        store.lock().unwrap().set("romm_token:http://a/", "");
+        assert_eq!(StoredTokens::new(store).load("http://a/"), None);
     }
 
     #[test]

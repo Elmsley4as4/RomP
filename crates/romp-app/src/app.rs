@@ -13,7 +13,7 @@ mod updates;
 
 use crate::cores::Cores;
 use crate::covers::Covers;
-use crate::credentials::{Keychain, TokenStore};
+use crate::credentials::TokenStore;
 use crate::grid::{row_count, row_range, CoverSlots, RecentRows, RECENT_ROWS};
 use crate::restore::{LastView, Observed, Placement, VIEW_KEY, WINDOW_KEY};
 use crate::romm::client::{check_version, server_candidates, Client, Error};
@@ -173,10 +173,11 @@ fn open_store() -> rusqlite::Result<Store> {
 
 pub fn run() -> anyhow::Result<()> {
     crate::vulkan::start_probe();
+    let store = Arc::new(Mutex::new(open_store()?));
     let shared = Shared {
         rt: Runtime::new()?,
-        store: Arc::new(Mutex::new(open_store()?)),
-        tokens: Arc::new(Keychain::app()),
+        tokens: Arc::new(crate::credentials::StoredTokens::new(store.clone())),
+        store,
         covers: Arc::new(Covers::new(paths::covers_dir())),
         downloads: Arc::new(Semaphore::new(PARALLEL_DOWNLOADS)),
         cores: Arc::new(Cores::new(paths::cores_dir())),
