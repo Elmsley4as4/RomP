@@ -380,7 +380,7 @@ impl Controller {
         ui.on_rename_collection(|key| with_controller(|c| c.rename_collection(key.to_string())));
         ui.on_delete_collection(|key| with_controller(|c| c.delete_collection(key.to_string())));
         ui.on_toggle_favorite(|| with_controller(|c| c.toggle_favorite()));
-        ui.on_pick_emulator(|index| with_controller(|c| c.pick_emulator(index)));
+        ui.on_cycle_emulator(|| with_controller(|c| c.cycle_emulator()));
         ui.on_toggle_membership(|key, on| {
             with_controller(|c| c.toggle_membership(key.to_string(), on));
         });

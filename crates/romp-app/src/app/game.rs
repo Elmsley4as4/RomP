@@ -107,16 +107,48 @@ impl Controller {
         ui.set_game_emulator_current(current as i32);
     }
 
+    /// Next core this platform can run, so one click changes the emulator.
+    pub(super) fn cycle_emulator(&self) {
+        let Some(detail) = self.current_game() else {
+            return;
+        };
+        let cores = crate::cores::candidates(&detail.platform_slug);
+        if cores.len() < 2 {
+            return;
+        }
+        let running = core_for_game(detail.id, &detail.platform_slug).map(|c| c.id);
+        let current = cores
+            .iter()
+            .position(|c| Some(c.id) == running)
+            .unwrap_or_default();
+        self.pick_emulator(((current + 1) % cores.len()) as i32);
+    }
+
     /// Runs this game on another of its platform's cores, from here on.
     pub(super) fn pick_emulator(&self, index: i32) {
         let Some(detail) = self.current_game() else {
             return;
         };
         let cores = crate::cores::candidates(&detail.platform_slug);
+        tracing::info!(
+            game = detail.id,
+            platform = %detail.platform_slug,
+            index,
+            cores = cores.len(),
+            "emulator choice clicked"
+        );
         let Some(core) = usize::try_from(index).ok().and_then(|i| cores.get(i)) else {
+            self.game_status(
+                detail.id,
+                tr!("That emulator is not one this console can run."),
+            );
             return;
         };
         if !crate::cores::set_game_core(detail.id, &detail.platform_slug, Some(core.id)) {
+            self.game_status(
+                detail.id,
+                tr!("That emulator is not one this console can run."),
+            );
             return;
         }
         self.shared.store.lock().unwrap().set(
