@@ -322,6 +322,11 @@ static CORE_LICENSES: &[(&str, &str, &str)] = &[
         "Non-commercial",
         "https://github.com/libretro/FBNeo/blob/master/LICENSE.md",
     ),
+    (
+        "mame2003_plus",
+        "Non-commercial",
+        "https://github.com/libretro/mame2003-plus-libretro/blob/master/LICENSE.md",
+    ),
 ];
 
 fn core_notice(core: &CoreInfo) -> Option<Notice> {

@@ -5,7 +5,7 @@
 set -euo pipefail
 
 HOST="${ROMP_HOST:-richard@192.168.4.9}"
-APP="$(cd "$(dirname "$0")/.." && pwd)/dist/RomP.app"
+APP="$(cd "$(dirname "$0")/.." && pwd)/dist/RomP2.app"
 
 # shellcheck disable=SC1091
 source "$HOME/.cargo/env"
@@ -27,6 +27,6 @@ codesign --verify --deep --strict "$APP"
 echo "== signature =="
 codesign -dv "$APP" 2>&1 | grep -E "Identifier=|TeamIdentifier=" || true
 
-rsync -a --delete "$APP/" "$HOST":/Applications/RomP.app/
-ssh "$HOST" 'pkill -x romp 2>/dev/null; sleep 1; open -a /Applications/RomP.app'
+rsync -a --delete "$APP/" "$HOST":/Applications/RomP2.app/
+ssh "$HOST" 'pkill -x romp 2>/dev/null; sleep 1; open -a /Applications/RomP2.app'
 echo "== installed on $HOST =="

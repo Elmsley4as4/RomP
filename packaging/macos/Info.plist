@@ -13,7 +13,7 @@
 		<string>ar</string>
 	</array>
 	<key>CFBundleDisplayName</key>
-	<string>RomP</string>
+	<string>RomP2</string>
 	<key>CFBundleExecutable</key>
 	<string>romp</string>
 	<key>CFBundleIconFile</key>
@@ -23,7 +23,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>RomP</string>
+	<string>RomP2</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

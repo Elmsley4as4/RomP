@@ -393,17 +393,17 @@ mod tests {
     }
 
     #[test]
-    fn arcade_bios_goes_where_finalburn_neo_looks() {
+    fn arcade_bios_goes_where_the_running_core_looks() {
         for slug in ["arcade", "neogeoaes", "neogeomvs", "cps2"] {
             assert_eq!(
                 placement(slug, "neogeo.zip"),
-                PathBuf::from("fbneo/neogeo.zip")
+                PathBuf::from("mame2003_plus/neogeo.zip")
             );
         }
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(missing("neogeomvs", dir.path()), ["neogeo.zip"]);
-        std::fs::create_dir(dir.path().join("fbneo")).unwrap();
-        std::fs::write(dir.path().join("fbneo/neogeo.zip"), b"x").unwrap();
+        std::fs::create_dir(dir.path().join("mame2003_plus")).unwrap();
+        std::fs::write(dir.path().join("mame2003_plus/neogeo.zip"), b"x").unwrap();
         assert!(missing("neogeomvs", dir.path()).is_empty());
     }
 

@@ -99,7 +99,7 @@ fn main() -> anyhow::Result<()> {
         }))
         .init();
     tracing::info!(
-        "RomP {} on {} {}",
+        "RomP2 {} on {} {}",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
         std::env::consts::ARCH

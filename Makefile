@@ -5,7 +5,7 @@ ARCH := $(shell uname -m)
 
 DIST := dist
 BIN := target/release
-BUNDLE_ID := io.github.rompemu.romp
+BUNDLE_ID := com.rogenmagic.romp2
 ICON := crates/romp-app/assets/icon-macos.png
 MOLTENVK := 1.4.1
 MOLTENVK_SHA256 := 5ea0c259df7ded9a275444820f09cced54d6e5a7c7a31d262de62a5cdb7e15cf
@@ -21,9 +21,9 @@ NFPM_VERSION := 2.47.0
 NFPM_SHA256 := 0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783
 NFPM := target/nfpm-$(NFPM_VERSION)
 
-APP := $(DIST)/RomP.app
+APP := $(DIST)/RomP2.app
 ICONSET := $(DIST)/RomP.iconset
-MACOS_ZIP := $(DIST)/RomP-$(RELEASE)-macos-$(ARCH).zip
+MACOS_ZIP := $(DIST)/RomP2-$(RELEASE)-macos-$(ARCH).zip
 LINUX_NAME := RomP-$(RELEASE)-linux-$(ARCH)
 LINUX_TAR := $(DIST)/$(LINUX_NAME).tar.gz
 APPDIR := $(DIST)/RomP.AppDir

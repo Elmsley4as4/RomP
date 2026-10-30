@@ -295,7 +295,7 @@ static CORES: &[(&[&str], CoreInfo)] = &[
         &["philips-cd-i"],
         core("same_cdi", "SAME CDi", "same_cdi_libretro", false),
     ),
-    (&crate::bios::ARCADE, FBNEO),
+    (&crate::bios::ARCADE, MAME2003_PLUS),
 ];
 
 pub fn all_cores() -> impl Iterator<Item = &'static CoreInfo> {
@@ -313,8 +313,12 @@ pub fn default_core_for_platform(slug: &str) -> Option<&'static CoreInfo> {
 /// Cores that can stand in for a platform's default one, in the order the settings
 /// offer them. Only cores known to run that platform's games belong here: choosing
 /// one routes both the launch and every capability check that follows the core.
+///
+/// Arcade defaults to MAME 2003-Plus because RomM's arcade folders hold MAME
+/// 2003-Plus sets, which FBNeo rejects with "No romset found"; FBNeo stays
+/// available for libraries built for it.
 pub fn alternates(slug: &str) -> &'static [&'static CoreInfo] {
-    static ARCADE: &[&CoreInfo] = &[&FBNEO, &MAME2003_PLUS];
+    static ARCADE: &[&CoreInfo] = &[&MAME2003_PLUS, &FBNEO];
     if crate::bios::ARCADE.contains(&slug) {
         ARCADE
     } else {
@@ -817,7 +821,7 @@ mod core_choice_tests {
     static TURN: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn arcade_offers_mame_2003_plus_alongside_fbneo() {
+    fn arcade_offers_mame_2003_plus_and_fbneo() {
         for slug in crate::bios::ARCADE {
             let ids: Vec<&str> = alternates(slug).iter().map(|c| c.id).collect();
             assert!(ids.contains(&"fbneo"), "{slug} should keep FBNeo");
@@ -825,39 +829,47 @@ mod core_choice_tests {
                 ids.contains(&"mame2003_plus"),
                 "{slug} should offer MAME 2003-Plus"
             );
+            // MAME 2003-Plus sets are what RomM serves, so it is the default.
+            assert_eq!(
+                ids[0], "mame2003_plus",
+                "{slug} should default to MAME 2003-Plus"
+            );
         }
     }
 
     #[test]
     fn a_chosen_core_replaces_the_default() {
         let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-        assert!(set_chosen_core("cps1", Some("mame2003_plus")));
-        assert_eq!(core_for_platform("cps1").unwrap().id, "mame2003_plus");
+        assert!(set_chosen_core("cps1", Some("fbneo")));
+        assert_eq!(core_for_platform("cps1").unwrap().id, "fbneo");
         // The default is untouched, and other platforms are unaffected.
-        assert_eq!(default_core_for_platform("cps1").unwrap().id, "fbneo");
+        assert_eq!(
+            default_core_for_platform("cps1").unwrap().id,
+            "mame2003_plus"
+        );
         assert_eq!(core_for_platform("snes").unwrap().id, "snes9x");
         assert!(set_chosen_core("cps1", None));
-        assert_eq!(core_for_platform("cps1").unwrap().id, "fbneo");
+        assert_eq!(core_for_platform("cps1").unwrap().id, "mame2003_plus");
     }
 
     #[test]
     fn a_core_that_platform_cannot_run_is_refused() {
         let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
         assert!(!set_chosen_core("cps1", Some("dolphin")));
-        assert_eq!(core_for_platform("cps1").unwrap().id, "fbneo");
+        assert_eq!(core_for_platform("cps1").unwrap().id, "mame2003_plus");
     }
 
     #[test]
     fn choices_survive_a_round_trip() {
         let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-        assert!(set_chosen_core("arcade", Some("mame2003_plus")));
+        assert!(set_chosen_core("arcade", Some("fbneo")));
         let json = choices_json();
         load_choices(None);
-        assert_eq!(core_for_platform("arcade").unwrap().id, "fbneo");
-        load_choices(Some(&json));
         assert_eq!(core_for_platform("arcade").unwrap().id, "mame2003_plus");
-        load_choices(None);
+        load_choices(Some(&json));
         assert_eq!(core_for_platform("arcade").unwrap().id, "fbneo");
+        load_choices(None);
+        assert_eq!(core_for_platform("arcade").unwrap().id, "mame2003_plus");
     }
 }
 
@@ -931,8 +943,9 @@ mod tests {
                 && default_options(id)
                     .contains(&("vice_drive_true_emulation".into(), "disabled".into()))));
         assert_eq!(core_for_platform("philips-cd-i").unwrap().id, "same_cdi");
+        // RomM's arcade folders hold MAME 2003-Plus sets, so that is the default.
         for slug in ["arcade", "neogeoaes", "cps2"] {
-            assert_eq!(core_for_platform(slug).unwrap().id, "fbneo");
+            assert_eq!(core_for_platform(slug).unwrap().id, "mame2003_plus");
         }
     }
 

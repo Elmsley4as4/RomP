@@ -187,6 +187,8 @@ pub fn run() -> anyhow::Result<()> {
             .build()?,
     };
     let ui = AppWindow::new()?;
+    // The title bar carries the build, so this fork is never mistaken for upstream.
+    ui.set_build_tag(env!("CARGO_PKG_VERSION").into());
     let players = crate::players::Assignments::from_json(
         shared.store.lock().unwrap().get("players").as_deref(),
     );

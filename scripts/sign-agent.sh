@@ -10,7 +10,7 @@
 # stable Apple Development certificate instead.
 set -u
 
-APP="/Users/admin/Development/RomP/dist/RomP.app"
+APP="/Users/admin/Development/RomP/dist/RomP2.app"
 LOG="/tmp/romp-sign.log"
 STATUS="/tmp/romp-sign.status"
 
