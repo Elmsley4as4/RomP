@@ -14,6 +14,16 @@ All notable changes to Romp are listed here. The format follows [Keep a Changelo
 - Self-update points at this fork rather than upstream RomP, so an upstream release
   cannot replace a build that carries these changes.
 
+### Changed
+
+- The macOS build is signed with the Apple Development certificate via
+  `scripts/sign-agent.sh` (LaunchAgent `com.rogenmagic.romp-sign`) and installed by
+  `scripts/deploy-macos.sh`. An ad-hoc signature changes the app's code identity on
+  every rebuild, and RomP keeps the RomM sign-in in the keychain under service
+  "Romp" — a rebuild with a new identity makes macOS demand the login keychain
+  password before it will hand the token over. Signing with a stable certificate
+  avoids that prompt for good.
+
 - Games on more than one disc can change disc from the game menu, when the game asks for the next one. RomP opens the tray, swaps the disc and closes it, as you would on the console. Discs are ordered by the number in their names, as RomM orders them, so Disc 10 comes after Disc 2. Amiga games whose disks are each zipped get the same disk list, starting from the first disk, instead of starting from the largest zip.
 - Save states can be deleted from the game's page, including where you left off. Each asks first, keeps a backup in the game's save folder, and is deleted on RomM too, unless another device has saved a newer one there since.
 
