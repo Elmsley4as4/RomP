@@ -548,33 +548,79 @@ impl Controller {
         )
     }
 
+    /// The "Emulator" row for a platform: which core runs that console's games.
+    /// Absent when the platform has only one emulator.
+    fn emulator_option(&self, platform: &str) -> Option<ConsoleOption> {
+        let cores = crate::cores::alternates(platform);
+        if cores.len() < 2 {
+            return None;
+        }
+        let running = core_for_platform(platform).map(|c| c.id);
+        let current = cores
+            .iter()
+            .position(|c| Some(c.id) == running)
+            .unwrap_or(0);
+        Some(ConsoleOption {
+            key: console_settings::emulator_key(platform).into(),
+            label: translate("Emulator").into(),
+            detail: translate("Which emulator runs this console's games.").into(),
+            choices: ModelRc::new(VecModel::from(
+                cores
+                    .iter()
+                    .map(|c| slint::SharedString::from(c.name))
+                    .collect::<Vec<_>>(),
+            )),
+            current: current as i32,
+        })
+    }
+
     fn show_consoles(&self) {
         let Some(ui) = self.ui() else { return };
         let chosen = self.console_choices();
-        let groups: Vec<ConsoleGroup> = console_settings::consoles()
-            .map(|console| ConsoleGroup {
-                name: console.name.into(),
-                options: ModelRc::new(VecModel::from(
-                    console
-                        .settings
-                        .iter()
-                        .map(|setting| ConsoleOption {
-                            key: setting.key.into(),
-                            label: translate(setting.label).into(),
-                            detail: translate(setting.detail).into(),
-                            choices: ModelRc::new(VecModel::from(
-                                setting
-                                    .choices
-                                    .iter()
-                                    .map(|c| translate(c.label).into())
-                                    .collect::<Vec<slint::SharedString>>(),
-                            )),
-                            current: console_settings::selected(setting, &chosen) as i32,
-                        })
-                        .collect::<Vec<_>>(),
-                )),
+        let mut groups: Vec<ConsoleGroup> = console_settings::consoles()
+            .map(|console| {
+                let mut options: Vec<ConsoleOption> = Vec::new();
+                if let Some(row) = self.emulator_option(console.platform) {
+                    options.push(row);
+                }
+                options.extend(console.settings.iter().map(|setting| {
+                    ConsoleOption {
+                        key: setting.key.into(),
+                        label: translate(setting.label).into(),
+                        detail: translate(setting.detail).into(),
+                        choices: ModelRc::new(VecModel::from(
+                            setting
+                                .choices
+                                .iter()
+                                .map(|c| translate(c.label).into())
+                                .collect::<Vec<slint::SharedString>>(),
+                        )),
+                        current: console_settings::selected(setting, &chosen) as i32,
+                    }
+                }));
+                ConsoleGroup {
+                    name: console.name.into(),
+                    options: ModelRc::new(VecModel::from(options)),
+                }
             })
             .collect();
+        // Platforms whose emulator can be swapped but that have no settings of their
+        // own — arcade, for one — still get their row.
+        let covered: Vec<String> = console_settings::consoles()
+            .map(|c| c.platform.to_string())
+            .collect();
+        let platforms = self.shared.store.lock().unwrap().platforms(false);
+        for platform in platforms {
+            if covered.iter().any(|slug| slug == &platform.slug) {
+                continue;
+            }
+            if let Some(row) = self.emulator_option(&platform.slug) {
+                groups.push(ConsoleGroup {
+                    name: platform.name.into(),
+                    options: ModelRc::new(VecModel::from(vec![row])),
+                });
+            }
+        }
         ui.set_settings_consoles(ModelRc::new(VecModel::from(groups)));
     }
 
@@ -625,10 +671,23 @@ impl Controller {
     }
 
     pub(super) fn console_option_changed(&self, key: String, index: i32) {
-        let mut chosen = self.console_choices();
         let Ok(index) = usize::try_from(index) else {
             return;
         };
+        // The Emulator row chooses the core for a whole platform, not a core option.
+        if let Some(platform) = console_settings::emulator_platform(&key) {
+            let cores = crate::cores::alternates(platform);
+            let Some(core) = cores.get(index) else { return };
+            if crate::cores::set_chosen_core(platform, Some(core.id)) {
+                self.shared.store.lock().unwrap().set(
+                    console_settings::CORE_CHOICE_KEY,
+                    &crate::cores::choices_json(),
+                );
+                self.show_consoles();
+            }
+            return;
+        }
+        let mut chosen = self.console_choices();
         if console_settings::choose(&mut chosen, &key, index) {
             let json = serde_json::to_string(&chosen).expect("console settings serialize");
             self.shared

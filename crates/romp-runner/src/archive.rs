@@ -10,8 +10,9 @@ pub struct LoadedRom {
 
 /// Cores that boot a game from inside a zip. Others that list zips, such as Atari800,
 /// Caprice32 and Fuse, open one but don't start what's in it, so they get it unpacked.
-const OPENS_ZIPS: [&str; 7] = [
+const OPENS_ZIPS: [&str; 8] = [
     "fbneo",
+    "mame2003_plus",
     "dosbox_pure",
     "puae",
     "vice_x64sc",

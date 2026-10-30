@@ -1,3 +1,4 @@
+use crate::cores::core_for_platform;
 use crate::download::{download_file, DownloadError};
 use crate::romm::client::Client;
 use crate::romm::types::Firmware;
@@ -72,7 +73,10 @@ static REQUIRED: &[(&str, &[&[&str]])] = &[
 
 pub fn placement(platform_slug: &str, file_name: &str) -> PathBuf {
     if ARCADE.contains(&platform_slug) {
-        Path::new("fbneo").join(file_name)
+        // Arcade BIOS files live in the running core's own directory, and which
+        // core runs arcade is a user choice.
+        let core = core_for_platform(platform_slug).map_or("fbneo", |c| c.id);
+        Path::new(core).join(file_name)
     } else if platform_slug == crate::xemu::PLATFORM {
         Path::new(XEMU_DIR).join(file_name)
     } else if platform_slug == crate::rpcs3::PLATFORM {

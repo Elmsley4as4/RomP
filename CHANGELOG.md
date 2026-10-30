@@ -6,6 +6,14 @@ All notable changes to Romp are listed here. The format follows [Keep a Changelo
 
 ### Added
 
+- Each console's emulator can be chosen from Settings → Consoles. The row lists the
+  cores that can run that platform, and the choice is kept per platform, so a game
+  starts on the emulator picked for its console. Arcade offers FinalBurn Neo and
+  MAME 2003-Plus; the launch, the BIOS directory and every capability that follows
+  the core (save states, Vulkan, core options) all follow the choice.
+- Self-update points at this fork rather than upstream RomP, so an upstream release
+  cannot replace a build that carries these changes.
+
 - Games on more than one disc can change disc from the game menu, when the game asks for the next one. RomP opens the tray, swaps the disc and closes it, as you would on the console. Discs are ordered by the number in their names, as RomM orders them, so Disc 10 comes after Disc 2. Amiga games whose disks are each zipped get the same disk list, starting from the first disk, instead of starting from the largest zip.
 - Save states can be deleted from the game's page, including where you left off. Each asks first, keeps a backup in the game's save folder, and is deleted on RomM too, unless another device has saved a newer one there since.
 

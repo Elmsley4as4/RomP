@@ -190,6 +190,14 @@ pub fn run() -> anyhow::Result<()> {
     let players = crate::players::Assignments::from_json(
         shared.store.lock().unwrap().get("players").as_deref(),
     );
+    crate::cores::load_choices(
+        shared
+            .store
+            .lock()
+            .unwrap()
+            .get(crate::console_settings::CORE_CHOICE_KEY)
+            .as_deref(),
+    );
     let prefs =
         crate::prefs::Preferences::from_json(shared.store.lock().unwrap().get("prefs").as_deref());
     crate::i18n::apply(crate::i18n::pick(prefs.language));

@@ -2,7 +2,10 @@
 use crate::external::Asset;
 use serde::{Deserialize, Serialize};
 
-pub const RELEASES: &str = "https://api.github.com/repos/RompEmu/RomP/releases/latest";
+/// This fork publishes no releases on purpose: RomP's self-update would replace a
+/// build that has changes upstream does not have. Pull upstream by hand instead
+/// (`git fetch upstream && git merge upstream/main`).
+pub const RELEASES: &str = "https://api.github.com/repos/Elmsley4as4/RomP/releases/latest";
 pub const STATE_KEY: &str = "updates";
 const CHECK_EVERY: i64 = 24 * 60 * 60;
 

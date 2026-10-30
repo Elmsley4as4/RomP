@@ -4,6 +4,21 @@ use std::collections::BTreeMap;
 
 pub const STORE_KEY: &str = "console_settings";
 
+/// Where the per-platform choice of emulator is kept (platform slug -> core id).
+pub const CORE_CHOICE_KEY: &str = "core_choice";
+
+/// The pseudo-setting key behind a console's "Emulator" row. It carries the
+/// platform slug because one row serves every game on that platform.
+pub const EMULATOR_PREFIX: &str = "emulator:";
+
+pub fn emulator_key(platform: &str) -> String {
+    format!("{EMULATOR_PREFIX}{platform}")
+}
+
+pub fn emulator_platform(key: &str) -> Option<&str> {
+    key.strip_prefix(EMULATOR_PREFIX)
+}
+
 pub struct Choice {
     pub label: &'static str,
     pub value: &'static str,

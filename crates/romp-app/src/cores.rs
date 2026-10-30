@@ -1,6 +1,8 @@
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::RwLock;
 
 pub const BUILDBOT: &str = "https://buildbot.libretro.com/nightly";
 pub const ARMSX2_RELEASE: &str = "https://github.com/RompEmu/ARMSX2/releases/latest/download";
@@ -27,6 +29,15 @@ const fn core(id: &'static str, name: &'static str, lib: &'static str, jit: bool
 
 const ARMSX2: CoreInfo = core("armsx2", "ARMSX2", "armsx2_libretro", true);
 const FAKE08: CoreInfo = core("fake08", "FAKE-08", "fake08_libretro", false);
+const FBNEO: CoreInfo = core("fbneo", "FinalBurn Neo", "fbneo_libretro", false);
+/// The MAME 2003-plus build handles the same arcade sets as FBNeo in practice, and
+/// is the escape when FBNeo refuses a romset — or when its save states misbehave.
+const MAME2003_PLUS: CoreInfo = core(
+    "mame2003_plus",
+    "MAME 2003-Plus",
+    "mame2003_plus_libretro",
+    false,
+);
 
 /// Cores the libretro buildbot doesn't build, published from RompEmu's own forks:
 /// (core, where its releases are, this computer's file).
@@ -284,21 +295,87 @@ static CORES: &[(&[&str], CoreInfo)] = &[
         &["philips-cd-i"],
         core("same_cdi", "SAME CDi", "same_cdi_libretro", false),
     ),
-    (
-        &crate::bios::ARCADE,
-        core("fbneo", "FinalBurn Neo", "fbneo_libretro", false),
-    ),
+    (&crate::bios::ARCADE, FBNEO),
 ];
 
 pub fn all_cores() -> impl Iterator<Item = &'static CoreInfo> {
     CORES.iter().map(|(_, core)| core)
 }
 
-pub fn core_for_platform(slug: &str) -> Option<&'static CoreInfo> {
+/// The core RomP picks for a platform when the user has not chosen another one.
+pub fn default_core_for_platform(slug: &str) -> Option<&'static CoreInfo> {
     CORES
         .iter()
         .find(|(slugs, _)| slugs.contains(&slug))
         .map(|(_, c)| c)
+}
+
+/// Cores that can stand in for a platform's default one, in the order the settings
+/// offer them. Only cores known to run that platform's games belong here: choosing
+/// one routes both the launch and every capability check that follows the core.
+pub fn alternates(slug: &str) -> &'static [&'static CoreInfo] {
+    static ARCADE: &[&CoreInfo] = &[&FBNEO, &MAME2003_PLUS];
+    if crate::bios::ARCADE.contains(&slug) {
+        ARCADE
+    } else {
+        &[]
+    }
+}
+
+/// The core the user chose per platform, as platform slug -> core id. Kept here
+/// rather than threaded through every call site because the whole app asks which
+/// core a platform runs — the launch, save states, core options, Vulkan support,
+/// split screen and the BIOS directory all read it through `core_for_platform`.
+static CHOSEN: RwLock<BTreeMap<String, String>> = RwLock::new(BTreeMap::new());
+
+/// Loads the saved choices, as stored in the app's settings store.
+pub fn load_choices(json: Option<&str>) {
+    let map: BTreeMap<String, String> = json
+        .and_then(|t| serde_json::from_str(t).ok())
+        .unwrap_or_default();
+    if let Ok(mut chosen) = CHOSEN.write() {
+        *chosen = map;
+    }
+}
+
+pub fn choices_json() -> String {
+    let map = CHOSEN.read().map(|c| c.clone()).unwrap_or_default();
+    serde_json::to_string(&map).expect("core choices serialize")
+}
+
+/// The user's choice for a platform, if it names a core that platform can actually
+/// run. A stale or hand-edited value falls back to the default.
+pub fn chosen_core(slug: &str) -> Option<&'static CoreInfo> {
+    let id = CHOSEN.read().ok()?.get(slug).cloned()?;
+    if default_core_for_platform(slug).is_some_and(|c| c.id == id) {
+        return default_core_for_platform(slug);
+    }
+    alternates(slug).iter().find(|c| c.id == id).copied()
+}
+
+/// Records a choice; `None` restores the default.
+pub fn set_chosen_core(slug: &str, core_id: Option<&str>) -> bool {
+    let Ok(mut chosen) = CHOSEN.write() else {
+        return false;
+    };
+    match core_id {
+        Some(id) if default_core_for_platform(slug).is_some_and(|c| c.id == id) => {
+            chosen.remove(slug);
+        }
+        Some(id) if alternates(slug).iter().any(|c| c.id == id) => {
+            chosen.insert(slug.to_string(), id.to_string());
+        }
+        Some(_) => return false,
+        None => {
+            chosen.remove(slug);
+        }
+    }
+    true
+}
+
+/// The core that will run this platform's games: the user's choice, else the default.
+pub fn core_for_platform(slug: &str) -> Option<&'static CoreInfo> {
+    chosen_core(slug).or_else(|| default_core_for_platform(slug))
 }
 
 const NINTENDO: [&str; 11] = [
@@ -728,6 +805,59 @@ impl Cores {
         .await
         .map_err(|e| e.to_string())?;
         Ok(path)
+    }
+}
+
+#[cfg(test)]
+mod core_choice_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// The chosen-core map is process-wide, so the tests that change it take turns.
+    static TURN: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn arcade_offers_mame_2003_plus_alongside_fbneo() {
+        for slug in crate::bios::ARCADE {
+            let ids: Vec<&str> = alternates(slug).iter().map(|c| c.id).collect();
+            assert!(ids.contains(&"fbneo"), "{slug} should keep FBNeo");
+            assert!(
+                ids.contains(&"mame2003_plus"),
+                "{slug} should offer MAME 2003-Plus"
+            );
+        }
+    }
+
+    #[test]
+    fn a_chosen_core_replaces_the_default() {
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(set_chosen_core("cps1", Some("mame2003_plus")));
+        assert_eq!(core_for_platform("cps1").unwrap().id, "mame2003_plus");
+        // The default is untouched, and other platforms are unaffected.
+        assert_eq!(default_core_for_platform("cps1").unwrap().id, "fbneo");
+        assert_eq!(core_for_platform("snes").unwrap().id, "snes9x");
+        assert!(set_chosen_core("cps1", None));
+        assert_eq!(core_for_platform("cps1").unwrap().id, "fbneo");
+    }
+
+    #[test]
+    fn a_core_that_platform_cannot_run_is_refused() {
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(!set_chosen_core("cps1", Some("dolphin")));
+        assert_eq!(core_for_platform("cps1").unwrap().id, "fbneo");
+    }
+
+    #[test]
+    fn choices_survive_a_round_trip() {
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(set_chosen_core("arcade", Some("mame2003_plus")));
+        let json = choices_json();
+        load_choices(None);
+        assert_eq!(core_for_platform("arcade").unwrap().id, "fbneo");
+        load_choices(Some(&json));
+        assert_eq!(core_for_platform("arcade").unwrap().id, "mame2003_plus");
+        load_choices(None);
+        assert_eq!(core_for_platform("arcade").unwrap().id, "fbneo");
     }
 }
 
