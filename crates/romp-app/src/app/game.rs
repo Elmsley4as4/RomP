@@ -1,7 +1,7 @@
 use super::save_sync::PendingLaunch;
 use super::{on_ui, with_controller, Controller, SCREEN_GAME, SCREEN_LIBRARY, SCREEN_SETTINGS};
 use crate::bios;
-use crate::cores::core_for_platform;
+use crate::cores::{core_for_game, core_for_platform};
 use crate::details;
 use crate::download::DownloadError;
 use crate::fetch::download_files;
@@ -90,6 +90,41 @@ impl Controller {
 
     pub(super) fn current_game_id(&self) -> Option<i64> {
         self.game.borrow().as_ref().map(|g| g.detail.id)
+    }
+
+    /// Fills the detail page's emulator row: the cores this game could run on,
+    /// and which one it is set to.
+    pub(super) fn show_emulator(&self, detail: &GameDetail) {
+        let Some(ui) = self.ui() else { return };
+        let cores = crate::cores::candidates(&detail.platform_slug);
+        let running = core_for_game(detail.id, &detail.platform_slug).map(|c| c.id);
+        let names: Vec<slint::SharedString> = cores.iter().map(|c| c.name.into()).collect();
+        let current = cores
+            .iter()
+            .position(|c| Some(c.id) == running)
+            .unwrap_or(0);
+        ui.set_game_emulator_choices(ModelRc::new(VecModel::from(names)));
+        ui.set_game_emulator_current(current as i32);
+    }
+
+    /// Runs this game on another of its platform's cores, from here on.
+    pub(super) fn pick_emulator(&self, index: i32) {
+        let Some(detail) = self.current_game() else {
+            return;
+        };
+        let cores = crate::cores::candidates(&detail.platform_slug);
+        let Some(core) = usize::try_from(index).ok().and_then(|i| cores.get(i)) else {
+            return;
+        };
+        if !crate::cores::set_game_core(detail.id, &detail.platform_slug, Some(core.id)) {
+            return;
+        }
+        self.shared.store.lock().unwrap().set(
+            crate::console_settings::CORE_CHOICE_GAMES_KEY,
+            &crate::cores::game_choices_json(),
+        );
+        self.show_emulator(&detail);
+        self.game_status(detail.id, tr!("This game now runs on {}.", core.name));
     }
 
     pub(super) fn current_game(&self) -> Option<GameDetail> {
@@ -311,6 +346,7 @@ impl Controller {
                 .collect::<Vec<_>>(),
         )));
         ui.set_game_downloaded(downloaded_path(&detail).is_some());
+        self.show_emulator(&detail);
         ui.set_game_busy(busy);
         if busy {
             ui.set_game_progress(self.download_fraction.get());
@@ -571,7 +607,7 @@ impl Controller {
         if detail.platform_slug == rpcs3::PLATFORM {
             return self.play_with_rpcs3(detail, rom);
         }
-        let Some(core) = core_for_platform(&detail.platform_slug) else {
+        let Some(core) = core_for_game(detail.id, &detail.platform_slug) else {
             return;
         };
         self.requested_slot.set(slot);
@@ -998,10 +1034,10 @@ impl Controller {
         self.preparing.set(false);
         let save_dir = paths::game_save_dir(&paths::data_dir(), &self.server(), detail.id);
         let prefs = self.prefs.get();
-        let states = core_for_platform(&detail.platform_slug)
+        let states = core_for_game(detail.id, &detail.platform_slug)
             .is_none_or(|core| crate::cores::saves_states(core.id));
         let reliable = states
-            && core_for_platform(&detail.platform_slug)
+            && core_for_game(detail.id, &detail.platform_slug)
                 .is_some_and(|core| crate::cores::resumes_reliably(core.id));
         let achievements = self.achievements_launch(&detail);
         let hardcore = achievements.as_ref().is_some_and(|a| a.hardcore);
@@ -1019,9 +1055,9 @@ impl Controller {
             save_dir,
             title: detail.title.clone(),
             jit,
-            vulkan: core_for_platform(&detail.platform_slug)
+            vulkan: core_for_game(detail.id, &detail.platform_slug)
                 .is_some_and(|core| crate::cores::uses_vulkan(core.id)),
-            options: core_for_platform(&detail.platform_slug)
+            options: core_for_game(detail.id, &detail.platform_slug)
                 .map(|core| {
                     crate::cores::with_platform_options(
                         &detail.platform_slug,
@@ -1029,7 +1065,7 @@ impl Controller {
                     )
                 })
                 .unwrap_or_default(),
-            split_screens: core_for_platform(&detail.platform_slug)
+            split_screens: core_for_game(detail.id, &detail.platform_slug)
                 .is_some_and(|core| core.id == "melondsds"),
             gamepads: self.gamepads.clone(),
             players: self.players.clone(),
@@ -1039,9 +1075,9 @@ impl Controller {
             states,
             mappings: self.mappings.clone(),
             nintendo: crate::cores::is_nintendo(&detail.platform_slug),
-            mouse: core_for_platform(&detail.platform_slug)
+            mouse: core_for_game(detail.id, &detail.platform_slug)
                 .is_some_and(|core| crate::cores::uses_mouse(core.id)),
-            computer: core_for_platform(&detail.platform_slug)
+            computer: core_for_game(detail.id, &detail.platform_slug)
                 .is_some_and(|core| crate::cores::is_computer(core.id)),
             port_devices: self.saved_ports(detail.id),
             volume_changed: Box::new(|volume| {

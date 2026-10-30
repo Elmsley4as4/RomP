@@ -382,6 +382,69 @@ pub fn core_for_platform(slug: &str) -> Option<&'static CoreInfo> {
     chosen_core(slug).or_else(|| default_core_for_platform(slug))
 }
 
+/// Every core that can run a platform, default first. A romset library is rarely
+/// all one flavour — RomM's arcade folders mix MAME 2003-Plus and FBNeo sets — so a
+/// single game may need a different core from the rest of its platform.
+pub fn candidates(slug: &str) -> Vec<&'static CoreInfo> {
+    let mut all: Vec<&'static CoreInfo> = Vec::new();
+    if let Some(default) = default_core_for_platform(slug) {
+        all.push(default);
+    }
+    for core in alternates(slug) {
+        if !all.iter().any(|c| c.id == core.id) {
+            all.push(core);
+        }
+    }
+    all
+}
+
+/// The per-game choice, keyed by the RomM game id.
+static CHOSEN_GAMES: RwLock<BTreeMap<i64, String>> = RwLock::new(BTreeMap::new());
+
+pub fn load_game_choices(json: Option<&str>) {
+    let map: BTreeMap<i64, String> = json
+        .and_then(|t| serde_json::from_str(t).ok())
+        .unwrap_or_default();
+    if let Ok(mut chosen) = CHOSEN_GAMES.write() {
+        *chosen = map;
+    }
+}
+
+pub fn game_choices_json() -> String {
+    let map = CHOSEN_GAMES.read().map(|c| c.clone()).unwrap_or_default();
+    serde_json::to_string(&map).expect("game core choices serialize")
+}
+
+/// Records which core runs one game; refused when the platform cannot run it.
+pub fn set_game_core(game_id: i64, slug: &str, core_id: Option<&str>) -> bool {
+    let Ok(mut chosen) = CHOSEN_GAMES.write() else {
+        return false;
+    };
+    match core_id {
+        Some(id) => {
+            if !candidates(slug).iter().any(|c| c.id == id) {
+                return false;
+            }
+            chosen.insert(game_id, id.to_string());
+        }
+        None => {
+            chosen.remove(&game_id);
+        }
+    }
+    true
+}
+
+/// The core that runs this particular game: its own choice if it has one, else
+/// whatever its platform runs on.
+pub fn core_for_game(game_id: i64, slug: &str) -> Option<&'static CoreInfo> {
+    let id = CHOSEN_GAMES
+        .read()
+        .ok()
+        .and_then(|c| c.get(&game_id).cloned());
+    id.and_then(|id| candidates(slug).into_iter().find(|c| c.id == id))
+        .or_else(|| core_for_platform(slug))
+}
+
 const NINTENDO: [&str; 11] = [
     "nes",
     "famicom",
@@ -857,6 +920,40 @@ mod core_choice_tests {
         let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
         assert!(!set_chosen_core("cps1", Some("dolphin")));
         assert_eq!(core_for_platform("cps1").unwrap().id, "mame2003_plus");
+    }
+
+    #[test]
+    fn one_game_can_run_on_a_different_core_from_its_platform() {
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        // RomM's arcade folders mix sets: Gang Wars is a FBNeo set in a
+        // MAME 2003-Plus library, so the game overrides its platform.
+        assert!(set_game_core(292, "arcade", Some("fbneo")));
+        assert_eq!(core_for_game(292, "arcade").unwrap().id, "fbneo");
+        // Other games on the platform are untouched.
+        assert_eq!(core_for_game(391, "arcade").unwrap().id, "mame2003_plus");
+        // A core the platform cannot run is refused.
+        assert!(!set_game_core(292, "arcade", Some("dolphin")));
+        assert!(set_game_core(292, "arcade", None));
+        assert_eq!(core_for_game(292, "arcade").unwrap().id, "mame2003_plus");
+    }
+
+    #[test]
+    fn game_choices_survive_a_round_trip() {
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(set_game_core(292, "arcade", Some("fbneo")));
+        let json = game_choices_json();
+        load_game_choices(None);
+        assert_eq!(core_for_game(292, "arcade").unwrap().id, "mame2003_plus");
+        load_game_choices(Some(&json));
+        assert_eq!(core_for_game(292, "arcade").unwrap().id, "fbneo");
+        load_game_choices(None);
+    }
+
+    #[test]
+    fn candidates_lead_with_the_default_and_list_each_core_once() {
+        let ids: Vec<&str> = candidates("arcade").iter().map(|c| c.id).collect();
+        assert_eq!(ids, vec!["mame2003_plus", "fbneo"]);
+        assert_eq!(candidates("snes").len(), 1);
     }
 
     #[test]

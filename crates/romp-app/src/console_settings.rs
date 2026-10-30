@@ -7,6 +7,9 @@ pub const STORE_KEY: &str = "console_settings";
 /// Where the per-platform choice of emulator is kept (platform slug -> core id).
 pub const CORE_CHOICE_KEY: &str = "core_choice";
 
+/// Where the per-game choice of emulator is kept (game id -> core id).
+pub const CORE_CHOICE_GAMES_KEY: &str = "game_core";
+
 /// The pseudo-setting key behind a console's "Emulator" row. It carries the
 /// platform slug because one row serves every game on that platform.
 pub const EMULATOR_PREFIX: &str = "emulator:";

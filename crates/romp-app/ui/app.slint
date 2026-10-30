@@ -1398,6 +1398,10 @@ component GamePage inherits FocusScope {
     callback toggle-favorite();
     callback toggle-membership(string, bool);
     callback new-collection();
+    // Which emulator runs this game, when its platform offers more than one.
+    in property <[string]> emulator-choices;
+    in property <int> emulator-current: 0;
+    callback pick-emulator(int);
 
     property <int> viewing: -1;
     property <bool> banner-from-shot: root.shots.length > 0 && root.shots[0].loaded;
@@ -1500,6 +1504,50 @@ component GamePage inherits FocusScope {
                             if root.busy: Button { text: @tr("Cancel"); clicked => { root.cancel(); } }
                             if root.downloaded && !root.busy: Button { text: @tr("Play"); primary: true; clicked => { root.play(); } }
                             if root.downloaded && !root.busy: Button { text: @tr("Delete download"); clicked => { root.delete(); } }
+                            if root.emulator-choices.length > 1: Rectangle {
+                                width: emulator-button.preferred-width;
+                                height: emulator-button.preferred-height;
+                                emulator-button := Button {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    text: @tr("Emulator: {}", root.emulator-choices[root.emulator-current]);
+                                    clicked => { emulator-popup.show(); }
+                                }
+                                emulator-popup := PopupWindow {
+                                    y: parent.height + 4px;
+                                    width: 260px;
+                                    height: emulator-list.preferred-height;
+                                    close-policy: close-on-click-outside;
+                                    Rectangle {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        background: Theme.surface-raised;
+                                        border-radius: 8px;
+                                        border-width: 1px;
+                                        border-color: Theme.surface-selected;
+                                        drop-shadow-blur: 12px;
+                                        drop-shadow-color: Theme.shadow;
+                                        emulator-list := VerticalLayout {
+                                            width: parent.width;
+                                            padding: 12px;
+                                            spacing: 6px;
+                                            Text { horizontal-alignment: Locale.start;
+                                                text: @tr("Run this game on");
+                                                color: Theme.text-muted;
+                                                font-size: Theme.font-caption;
+                                            }
+                                            for choice[i] in root.emulator-choices: Button {
+                                                text: i == root.emulator-current ? @tr("✓ {}", choice) : choice;
+                                                primary: i == root.emulator-current;
+                                                clicked => {
+                                                    emulator-popup.close();
+                                                    root.pick-emulator(i);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             if root.show-collections: Button {
                                 text: root.favorite ? @tr("♥ In favorites") : @tr("♡ Add to favorites");
                                 enabled: root.can-edit-collections;
@@ -2715,6 +2763,10 @@ export component AppWindow inherits Window {
     callback show-all-achievements();
     in property <string> game-summary;
     in property <[Fact]> game-facts;
+    // Which emulator runs the open game, when its platform offers more than one.
+    in property <[string]> game-emulator-choices;
+    in property <int> game-emulator-current: 0;
+    callback pick-emulator(int);
     in property <[Shot]> game-shots;
     in property <[GameCard]> game-similar;
     in property <float> game-similar-shelf: 230;
@@ -2945,6 +2997,9 @@ export component AppWindow inherits Window {
             stats: root.game-stats;
             summary: root.game-summary;
             facts: root.game-facts;
+            emulator-choices: root.game-emulator-choices;
+            emulator-current: root.game-emulator-current;
+            pick-emulator(i) => { root.pick-emulator(i); }
             save-slots: root.game-save-slots;
             slots-hardcore: root.game-slots-hardcore;
             play-slot(slot) => { root.play-slot(slot); }

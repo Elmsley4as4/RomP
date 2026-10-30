@@ -193,6 +193,14 @@ pub fn run() -> anyhow::Result<()> {
     let players = crate::players::Assignments::from_json(
         shared.store.lock().unwrap().get("players").as_deref(),
     );
+    crate::cores::load_game_choices(
+        shared
+            .store
+            .lock()
+            .unwrap()
+            .get(crate::console_settings::CORE_CHOICE_GAMES_KEY)
+            .as_deref(),
+    );
     crate::cores::load_choices(
         shared
             .store
@@ -372,6 +380,7 @@ impl Controller {
         ui.on_rename_collection(|key| with_controller(|c| c.rename_collection(key.to_string())));
         ui.on_delete_collection(|key| with_controller(|c| c.delete_collection(key.to_string())));
         ui.on_toggle_favorite(|| with_controller(|c| c.toggle_favorite()));
+        ui.on_pick_emulator(|index| with_controller(|c| c.pick_emulator(index)));
         ui.on_toggle_membership(|key, on| {
             with_controller(|c| c.toggle_membership(key.to_string(), on));
         });
