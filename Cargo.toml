@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.19.5-fork2"
+version = "0.19.6-fork2"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/RompEmu/RomP"

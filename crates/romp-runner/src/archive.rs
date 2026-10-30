@@ -68,6 +68,12 @@ pub fn open_rom(
         if let Some(disc) = detect_disc_image_kind(rom_path, ext_str)? {
             return extract_disc_image_archive(rom_path, ext_str, session_id, disc);
         }
+        // A core that reads arcade sets itself needs the whole archive, and a one-file
+        // extraction of a 7z set is useless to it — repack it as a zip under the set's own
+        // name instead, which is what the core looks the archive up by.
+        if ext_str == "7z" && opens_zips {
+            return repack_7z_as_zip(rom_path, session_id);
+        }
         match ext_str {
             "zip" => return open_zip(rom_path, session_id, need_fullpath, valid_extensions),
             "7z" => return open_7z(rom_path, session_id, need_fullpath, valid_extensions),
@@ -276,6 +282,62 @@ fn open_7z(
         .ok_or_else(|| anyhow!("invalid entry name in archive: {name}"))?;
     let out_path = base.join(file_name);
     std::fs::write(&out_path, &bytes).with_context(|| format!("write {}", out_path.display()))?;
+    let canon = dunce::canonicalize(&out_path).unwrap_or(out_path);
+    Ok(LoadedRom {
+        effective_path: canon,
+        bytes: None,
+    })
+}
+
+/// Gives a zip-native core an archive set that arrived as a `.7z`. FBNeo and MAME 2003-Plus
+/// look their sets up by file name and match the contents from inside the archive, so the
+/// repacked copy has to keep both the entries and the set's own stem (`trackfld.7z` ->
+/// `trackfld.zip`); one extracted file is no use to them.
+fn repack_7z_as_zip(archive_path: &Path, session_id: &str) -> Result<LoadedRom> {
+    let stem = archive_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow!("invalid archive name {}", archive_path.display()))?;
+    let base = scratch_dir(session_id);
+    std::fs::create_dir_all(&base).with_context(|| format!("mkdir {}", base.display()))?;
+    let out_path = base.join(format!("{stem}.zip"));
+
+    let mut reader =
+        sevenz_rust2::ArchiveReader::open(archive_path, sevenz_rust2::Password::empty())
+            .with_context(|| format!("read 7z {}", archive_path.display()))?;
+    let mut writer = zip::ZipWriter::new(
+        std::fs::File::create(&out_path)
+            .with_context(|| format!("create {}", out_path.display()))?,
+    );
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut entries: u32 = 0;
+    reader
+        .for_each_entries(|entry, entry_reader| {
+            if entry.is_directory() {
+                return Ok(true);
+            }
+            let name = entry.name().to_string();
+            writer
+                .start_file(name, options)
+                .map_err(std::io::Error::other)?;
+            std::io::copy(entry_reader, &mut writer)?;
+            entries += 1;
+            Ok(true)
+        })
+        .with_context(|| format!("unpack 7z {}", archive_path.display()))?;
+    writer
+        .finish()
+        .with_context(|| format!("write {}", out_path.display()))?;
+    if entries == 0 {
+        anyhow::bail!("no entries in archive {}", archive_path.display());
+    }
+    info!(
+        archive = %archive_path.display(),
+        repacked = %out_path.display(),
+        entries,
+        "repacked 7z set as a zip for the core"
+    );
     let canon = dunce::canonicalize(&out_path).unwrap_or(out_path);
     Ok(LoadedRom {
         effective_path: canon,
@@ -710,6 +772,50 @@ mod tests {
         let rom = open_rom(&archive, "test-7z", false, "sfc|smc", false).unwrap();
         assert_eq!(rom.bytes.as_deref(), Some(&b"the whole game"[..]));
         assert_eq!(rom.effective_path, tmp.path().join("game.sfc"));
+    }
+
+    #[test]
+    fn a_7z_arcade_set_is_repacked_for_cores_that_read_archives() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("a.rom"), b"first chip").unwrap();
+        std::fs::write(src.join("b.rom"), b"second chip").unwrap();
+        let archive = tmp.path().join("trackfld.7z");
+        sevenz_rust2::compress_to_path(&src, &archive).unwrap();
+
+        // FBNeo takes zips itself, so the set must arrive as an archive named after the set.
+        let rom = open_rom(&archive, "test-7z-set", true, "zip|7z", true).unwrap();
+        assert_eq!(
+            rom.effective_path.file_name().and_then(|n| n.to_str()),
+            Some("trackfld.zip")
+        );
+        assert_eq!(rom.effective_path.extension().and_then(|e| e.to_str()), Some("zip"));
+
+        let f = std::fs::File::open(&rom.effective_path).unwrap();
+        let mut zip = zip::ZipArchive::new(f).unwrap();
+        let mut names: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index_raw(i).unwrap().name().unwrap().to_string())
+            .filter(|n| !n.ends_with('/'))
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.rom", "b.rom"]);
+        let mut contents = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("b.rom").unwrap(), &mut contents).unwrap();
+        assert_eq!(contents, "second chip");
+    }
+
+    #[test]
+    fn a_7z_rom_for_a_core_that_wants_a_single_file_is_still_extracted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("game.sfc"), b"the whole game").unwrap();
+        let archive = tmp.path().join("game.7z");
+        sevenz_rust2::compress_to_path(&src, &archive).unwrap();
+
+        let rom = open_rom(&archive, "test-7z-single", true, "sfc|smc", false).unwrap();
+        assert_eq!(rom.effective_path.file_name().and_then(|n| n.to_str()), Some("game.sfc"));
     }
 
     #[test]
