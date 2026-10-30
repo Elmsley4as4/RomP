@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: romp\n"
 "Report-Msgid-Bugs-To: \n"
-"PO-Revision-Date: 2026-10-23 20:33\n"
+"PO-Revision-Date: 2026-10-28 19:40\n"
 "Last-Translator: \n"
 "Language-Team: Arabic\n"
 "Language: ar_SA\n"
@@ -220,7 +220,7 @@ msgstr "تثبيت برنامج نظام PS3…"
 msgid "Could not start the game: {e}"
 msgstr "تعذر بدء اللعبة: {e}"
 
-#: crates/romp-app/src/app/game.rs
+#: crates/romp-app/src/app/game.rs crates/romp-app/src/app/slots.rs
 msgid "Close the running game first."
 msgstr "أغلق اللعبة قيد التشغيل أولاً."
 
@@ -643,6 +643,10 @@ msgid "Delete"
 msgstr "حذف"
 
 #: crates/romp-app/src/app/collections.rs
+msgid "The save state is removed from this computer and from your RomM server. A backup stays in the game's save folder."
+msgstr ""
+
+#: crates/romp-app/src/app/collections.rs
 msgid "Couldn't rename \"{0}\": {1}."
 msgstr "تعذر إعادة تسمية \"{0}\": {1}."
 
@@ -712,6 +716,10 @@ msgstr ""
 
 #: crates/romp-app/src/app/slots.rs
 msgid "Couldn't use the save: {e}."
+msgstr ""
+
+#: crates/romp-app/src/app/slots.rs
+msgid "Couldn't delete the save state: {}."
 msgstr ""
 
 #: crates/romp-app/src/bios.rs
@@ -1229,6 +1237,10 @@ msgstr "تم إيقاف تحميل الحالات في الوضع المتشعب
 #: crates/romp-app/src/play.rs
 msgid "Save slot {slot}"
 msgstr "حفظ الفتحة {slot}"
+
+#: crates/romp-app/src/play.rs
+msgid "{} of {}"
+msgstr ""
 
 #: crates/romp-app/src/play.rs
 msgid "Port {}"
