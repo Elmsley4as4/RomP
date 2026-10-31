@@ -49,8 +49,11 @@ impl Rewind {
     }
 
     /// Turns the history on or off. Turning it on starts from nothing, so a game never
-    /// rewinds into another game's states.
+    /// rewinds into another game's states; asking for what is already set changes nothing.
     pub fn set_on(&mut self, on: bool) {
+        if self.on == on {
+            return;
+        }
         self.on = on;
         self.clear();
     }
@@ -162,6 +165,10 @@ mod tests {
         let mut rewind = Rewind::new();
         rewind.set_on(true);
         rewind.keep(vec![1]);
+        // Saying it again is not a new game, so the points stay.
+        rewind.set_on(true);
+        assert_eq!(rewind.len(), 1);
+        rewind.set_on(false);
         rewind.set_on(true);
         assert!(rewind.is_empty());
     }
