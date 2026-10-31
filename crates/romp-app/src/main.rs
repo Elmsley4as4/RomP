@@ -39,6 +39,7 @@ mod ports;
 mod prefs;
 mod qr;
 mod restore;
+mod rewind;
 mod romm;
 mod rotation;
 mod rpcs3;

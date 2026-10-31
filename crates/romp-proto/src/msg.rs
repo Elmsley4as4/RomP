@@ -40,6 +40,10 @@ pub enum AppMsg {
     Reset,
     /// Puts in the game's disc with this index, counting from 0.
     ChangeDisc(u32),
+    /// Turns the rewind history on for this game (true) or throws it away (false).
+    Rewind(bool),
+    /// The rewind button went down (true) or came up (false).
+    RewindHold(bool),
     /// Signs in to RetroAchievements and starts tracking the loaded game.
     Achievements {
         username: String,

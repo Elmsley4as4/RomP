@@ -201,6 +201,14 @@ pub fn run() -> anyhow::Result<()> {
             .get(crate::console_settings::CORE_CHOICE_GAMES_KEY)
             .as_deref(),
     );
+    crate::rewind::load_choices(
+        shared
+            .store
+            .lock()
+            .unwrap()
+            .get(crate::console_settings::REWIND_GAMES_KEY)
+            .as_deref(),
+    );
     crate::cores::load_choices(
         shared
             .store
@@ -381,6 +389,7 @@ impl Controller {
         ui.on_delete_collection(|key| with_controller(|c| c.delete_collection(key.to_string())));
         ui.on_toggle_favorite(|| with_controller(|c| c.toggle_favorite()));
         ui.on_cycle_emulator(|| with_controller(|c| c.cycle_emulator()));
+        ui.on_toggle_rewind(|| with_controller(|c| c.toggle_rewind()));
         ui.on_toggle_membership(|key, on| {
             with_controller(|c| c.toggle_membership(key.to_string(), on));
         });

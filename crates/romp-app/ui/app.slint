@@ -1402,6 +1402,9 @@ component GamePage inherits FocusScope {
     in property <[string]> emulator-choices;
     in property <int> emulator-current: 0;
     callback cycle-emulator();
+    // Whether L2 rewinds this game instead of reaching it.
+    in property <bool> rewind-on: false;
+    callback toggle-rewind();
 
     property <int> viewing: -1;
     property <bool> banner-from-shot: root.shots.length > 0 && root.shots[0].loaded;
@@ -1509,6 +1512,11 @@ component GamePage inherits FocusScope {
                             if root.emulator-choices.length > 1: Button {
                                 text: @tr("Emulator: {}", root.emulator-choices[root.emulator-current]);
                                 clicked => { root.cycle-emulator(); }
+                            }
+                            // One click hands L2 to the rewind, or gives it back.
+                            if root.downloaded && !root.busy: Button {
+                                text: root.rewind-on ? @tr("Rewind: L2") : @tr("Rewind: Off");
+                                clicked => { root.toggle-rewind(); }
                             }
                         }
                         if root.status != "": Text { horizontal-alignment: Locale.start; text: root.status; color: Theme.text-secondary; wrap: word-wrap; }
@@ -2676,6 +2684,9 @@ export component AppWindow inherits Window {
     in property <[string]> game-emulator-choices;
     in property <int> game-emulator-current: 0;
     callback cycle-emulator();
+    // Whether L2 rewinds the open game instead of reaching it.
+    in property <bool> game-rewind-on: false;
+    callback toggle-rewind();
     in property <[Shot]> game-shots;
     in property <[GameCard]> game-similar;
     in property <float> game-similar-shelf: 230;
@@ -2909,6 +2920,8 @@ export component AppWindow inherits Window {
             emulator-choices: root.game-emulator-choices;
             emulator-current: root.game-emulator-current;
             cycle-emulator => { root.cycle-emulator(); }
+            rewind-on: root.game-rewind-on;
+            toggle-rewind => { root.toggle-rewind(); }
             save-slots: root.game-save-slots;
             slots-hardcore: root.game-slots-hardcore;
             play-slot(slot) => { root.play-slot(slot); }

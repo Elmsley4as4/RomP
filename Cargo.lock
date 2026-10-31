@@ -4987,7 +4987,7 @@ dependencies = [
 
 [[package]]
 name = "romp-app"
-version = "0.19.6-fork2"
+version = "0.19.7-fork1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -5041,7 +5041,7 @@ dependencies = [
 
 [[package]]
 name = "romp-cheevos"
-version = "0.19.6-fork2"
+version = "0.19.7-fork1"
 dependencies = [
  "cc",
  "md-5",
@@ -5050,7 +5050,7 @@ dependencies = [
 
 [[package]]
 name = "romp-libretro"
-version = "0.19.6-fork2"
+version = "0.19.7-fork1"
 dependencies = [
  "cc",
  "libloading 0.9.0",
@@ -5060,7 +5060,7 @@ dependencies = [
 
 [[package]]
 name = "romp-proto"
-version = "0.19.6-fork2"
+version = "0.19.7-fork1"
 dependencies = [
  "libc",
  "postcard",
@@ -5071,7 +5071,7 @@ dependencies = [
 
 [[package]]
 name = "romp-runner"
-version = "0.19.6-fork2"
+version = "0.19.7-fork1"
 dependencies = [
  "anyhow",
  "ash",

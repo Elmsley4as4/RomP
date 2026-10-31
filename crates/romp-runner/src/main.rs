@@ -7,7 +7,7 @@ use romp_runner::achievements::Achievements;
 use romp_runner::frontend::Frontend;
 use romp_runner::ipc::Link;
 use romp_runner::state::{self, StateManager};
-use romp_runner::{archive, audio, hw_gl, hw_vulkan, perf, sandbox};
+use romp_runner::{archive, audio, hw_gl, hw_vulkan, perf, rewind, sandbox};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
@@ -269,6 +269,8 @@ fn run(args: &Args, frontend: &mut Frontend, link: &Link) -> anyhow::Result<()> 
     let mut next_frame_at = Instant::now();
     let mut paused = false;
     let mut stop_requested = false;
+    let mut rewind = rewind::Rewind::new();
+    let mut rewinding = false;
     let mut stats = perf::FrameStats::new(Duration::from_secs(10), Instant::now());
     loop {
         let now = Instant::now();
@@ -314,6 +316,25 @@ fn run(args: &Args, frontend: &mut Frontend, link: &Link) -> anyhow::Result<()> 
                     send_discs(link, &mut core, frontend);
                 }
                 AppMsg::Shutdown => stop_requested = true,
+                AppMsg::Rewind(on) => {
+                    rewind.set_on(on);
+                    if !on && rewinding {
+                        rewinding = false;
+                        frontend.audio.lock().set_muted(false);
+                    }
+                }
+                AppMsg::RewindHold(held) => {
+                    // Hardcore play forbids going back, the same as loading a state does.
+                    let blocked = achievements.as_ref().is_some_and(Achievements::hardcore);
+                    let wanted = held && rewind.is_on() && !blocked;
+                    if wanted != rewinding {
+                        rewinding = wanted;
+                        frontend.audio.lock().set_muted(rewinding);
+                        if !rewinding {
+                            frontend.audio.lock().refill();
+                        }
+                    }
+                }
                 AppMsg::ChangeDisc(index) => {
                     if !core.change_disc(frontend, index) {
                         warn!("couldn't change to disc {}", index + 1);
@@ -362,7 +383,35 @@ fn run(args: &Args, frontend: &mut Frontend, link: &Link) -> anyhow::Result<()> 
         }
         if !paused {
             let run_started = Instant::now();
-            core.run(frontend);
+            if rewinding {
+                // Going back puts an older state in place and draws one muted frame of
+                // it; the game itself does not run forward. Once the history is spent
+                // the picture holds still while the button is held.
+                match rewind.take() {
+                    Some(state) => match core.unserialize(&state, frontend) {
+                        Ok(()) => core.run(frontend),
+                        Err(e) => {
+                            warn!("rewind: {e}");
+                            rewind.clear();
+                            rewinding = false;
+                            frontend.audio.lock().set_muted(false);
+                            frontend.audio.lock().refill();
+                        }
+                    },
+                    None => {
+                        frontend.video_dirty = false;
+                        frontend.hw_frame_dirty = false;
+                    }
+                }
+            } else {
+                core.run(frontend);
+                if rewind.wants_state() {
+                    match core.serialize(frontend) {
+                        Ok(state) => rewind.keep(state),
+                        Err(e) => warn!("rewind: {e}"),
+                    }
+                }
+            }
             let run_time = run_started.elapsed();
             if let Some((slot, give_up)) = resume {
                 match saves.try_load_state(slot, &mut core, frontend) {

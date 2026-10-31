@@ -7,6 +7,12 @@ use std::time::{Duration, Instant};
 /// screens. Counted by the emulator, as a window nobody looks at may pick up only some of them.
 const FRAMES: u64 = 180;
 const TIMEOUT: Duration = Duration::from_secs(90);
+/// Frames the rewind button is held for, which walks well back through a real game.
+/// Kept well inside the history the test has built up by then, or the picture would
+/// hold still at the oldest point and no frames would come.
+const REWIND_FRAMES: u64 = 15;
+/// Frames the game runs after the button is let go, before the test passes.
+const AFTER_REWIND: u64 = 10;
 pub const SLOT: u8 = 1;
 pub const FRAME_FILE: &str = "frame.png";
 /// "passed", or what failed: for when the exit code doesn't reach whoever started Romp.
@@ -19,15 +25,32 @@ pub type Outcome = Rc<RefCell<Option<Result<(), String>>>>;
 pub enum Step {
     Wait,
     SaveState,
+    /// Hold the rewind button down.
+    Rewind,
+    /// Let the rewind button go again.
+    ReleaseRewind,
     Finish,
 }
 
-/// A quick check that a packaged build plays a game: frames arrive and aren't blank, and a
-/// state saves. Used by `romp --smoke`, which exits with an error when it fails.
+/// How far through the test is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Boot,
+    Saved,
+    Rewinding,
+    LetGo,
+}
+
+/// A quick check that a packaged build plays a game: frames arrive and aren't blank, a
+/// state saves, and rewinding holds and lets go without losing the picture. Used by
+/// `romp --smoke`, which exits with an error when it fails.
 pub struct Smoke {
     dir: PathBuf,
     deadline: Instant,
-    saving: bool,
+    phase: Phase,
+    /// The frame the rewind was first held on, and the frame it was let go on.
+    held_at: Option<u64>,
+    let_go_at: Option<u64>,
     states: bool,
     outcome: Outcome,
 }
@@ -38,7 +61,9 @@ impl Smoke {
         let smoke = Self {
             dir,
             deadline: now + TIMEOUT,
-            saving: false,
+            phase: Phase::Boot,
+            held_at: None,
+            let_go_at: None,
             states: true,
             outcome: outcome.clone(),
         };
@@ -64,10 +89,11 @@ impl Smoke {
     /// Called often, whether or not a frame arrived.
     pub fn tick(&self, now: Instant) -> Step {
         if !self.done() && now >= self.deadline {
-            let stage = if self.saving {
-                "saving a state"
-            } else {
-                "waiting for frames"
+            let stage = match self.phase {
+                Phase::Boot => "waiting for frames",
+                Phase::Saved => "saving a state",
+                Phase::Rewinding => "rewinding",
+                Phase::LetGo => "letting go of the rewind",
             };
             return self.end(Err(format!("timed out {stage}")));
         }
@@ -76,45 +102,77 @@ impl Smoke {
 
     /// Called with each new frame the game shows.
     pub fn frame(&mut self, rgba: &[u8], width: u32, height: u32, frames: u64) -> Step {
-        if self.done() || self.saving || frames < FRAMES {
+        if self.done() {
             return Step::Wait;
         }
-        if !rgba.as_chunks::<4>().0.iter().any(|p| p[..3] != [0, 0, 0]) {
-            return self.end(Err(format!("frame {frames} is all black")));
+        let blank = !rgba.as_chunks::<4>().0.iter().any(|p| p[..3] != [0, 0, 0]);
+        match self.phase {
+            Phase::Boot => {
+                if frames < FRAMES {
+                    return Step::Wait;
+                }
+                if blank {
+                    return self.end(Err(format!("frame {frames} is all black")));
+                }
+                let picture = image::RgbaImage::from_raw(width, height, rgba.to_vec());
+                let written = picture
+                    .ok_or_else(|| "frame has the wrong size".to_string())
+                    .and_then(|p| {
+                        std::fs::create_dir_all(&self.dir)
+                            .and_then(|()| {
+                                p.save(self.dir.join(FRAME_FILE))
+                                    .map_err(std::io::Error::other)
+                            })
+                            .map_err(|e| format!("writing the frame: {e}"))
+                    });
+                if let Err(e) = written {
+                    return self.end(Err(e));
+                }
+                if !self.states {
+                    return self.end(Ok(()));
+                }
+                self.phase = Phase::Saved;
+                Step::SaveState
+            }
+            Phase::Saved => Step::Wait,
+            Phase::Rewinding => {
+                let from = *self.held_at.get_or_insert(frames);
+                if blank {
+                    return self.end(Err("the picture went black while rewinding".into()));
+                }
+                if frames.saturating_sub(from) < REWIND_FRAMES {
+                    return Step::Wait;
+                }
+                self.let_go_at = Some(frames);
+                self.phase = Phase::LetGo;
+                Step::ReleaseRewind
+            }
+            Phase::LetGo => {
+                if blank {
+                    return self.end(Err("the picture went black after rewinding".into()));
+                }
+                let from = self.let_go_at.unwrap_or(frames);
+                if frames.saturating_sub(from) < AFTER_REWIND {
+                    return Step::Wait;
+                }
+                self.end(Ok(()))
+            }
         }
-        let picture = image::RgbaImage::from_raw(width, height, rgba.to_vec());
-        let written = picture
-            .ok_or_else(|| "frame has the wrong size".to_string())
-            .and_then(|p| {
-                std::fs::create_dir_all(&self.dir)
-                    .and_then(|()| {
-                        p.save(self.dir.join(FRAME_FILE))
-                            .map_err(std::io::Error::other)
-                    })
-                    .map_err(|e| format!("writing the frame: {e}"))
-            });
-        if let Err(e) = written {
-            return self.end(Err(e));
-        }
-        if !self.states {
-            return self.end(Ok(()));
-        }
-        self.saving = true;
-        Step::SaveState
     }
 
-    /// Called when the runner reports a state save.
-    pub fn state_written(&self, slot: u8, ok: bool, save_dir: &Path) -> Step {
-        if !self.saving || slot != SLOT || self.done() {
+    /// Called when the runner reports a state save. Rewinding follows a saved state,
+    /// because it needs the emulator to be able to keep one.
+    pub fn state_written(&mut self, slot: u8, ok: bool, save_dir: &Path) -> Step {
+        if self.phase != Phase::Saved || slot != SLOT || self.done() {
             return Step::Wait;
         }
         let file = crate::slots::state_path(save_dir, SLOT);
         let saved = std::fs::metadata(&file).is_ok_and(|m| m.len() > 0);
-        self.end(if ok && saved {
-            Ok(())
-        } else {
-            Err(format!("the state didn't save to {}", file.display()))
-        })
+        if !ok || !saved {
+            return self.end(Err(format!("the state didn't save to {}", file.display())));
+        }
+        self.phase = Phase::Rewinding;
+        Step::Rewind
     }
 
     /// Called when the emulator stops before the test finished.
@@ -162,8 +220,34 @@ mod tests {
             "saves once"
         );
         std::fs::write(crate::slots::state_path(dir.path(), SLOT), b"state").unwrap();
-        assert_eq!(smoke.state_written(SLOT, true, dir.path()), Step::Finish);
+        assert_eq!(smoke.state_written(SLOT, true, dir.path()), Step::Rewind);
+        // Held down, then let go after REWIND_FRAMES, then a moment to settle.
+        let held = FRAMES + 2;
+        assert_eq!(smoke.frame(&blue, 4, 4, held), Step::Wait);
+        assert_eq!(
+            smoke.frame(&blue, 4, 4, held + REWIND_FRAMES),
+            Step::ReleaseRewind
+        );
+        assert_eq!(smoke.frame(&blue, 4, 4, held + REWIND_FRAMES + 1), Step::Wait);
+        assert_eq!(
+            smoke.frame(&blue, 4, 4, held + REWIND_FRAMES + AFTER_REWIND),
+            Step::Finish
+        );
         assert_eq!(*outcome.borrow(), Some(Ok(())));
+    }
+
+    #[test]
+    fn a_picture_that_goes_black_while_rewinding_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut smoke, outcome) = Smoke::new(dir.path().join("out"), Instant::now());
+        smoke.frame(&frame([255; 4]), 4, 4, FRAMES);
+        std::fs::write(crate::slots::state_path(dir.path(), SLOT), b"state").unwrap();
+        smoke.state_written(SLOT, true, dir.path());
+        assert_eq!(
+            smoke.frame(&frame([0, 0, 0, 255]), 4, 4, FRAMES + 2),
+            Step::Finish
+        );
+        assert!(matches!(&*outcome.borrow(), Some(Err(e)) if e.contains("while rewinding")));
     }
 
     #[test]

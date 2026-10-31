@@ -141,6 +141,26 @@ msgid "RetroAchievements did not accept the sign-in"
 msgstr ""
 
 #: crates/romp-app/src/app/game.rs
+msgid "That emulator is not one this console can run."
+msgstr ""
+
+#: crates/romp-app/src/app/game.rs
+msgid "This game now runs on {}."
+msgstr ""
+
+#: crates/romp-app/src/app/game.rs
+msgid "That setting could not be saved."
+msgstr ""
+
+#: crates/romp-app/src/app/game.rs
+msgid "L2 now rewinds this game."
+msgstr ""
+
+#: crates/romp-app/src/app/game.rs
+msgid "L2 belongs to the game again."
+msgstr ""
+
+#: crates/romp-app/src/app/game.rs
 msgid "RomP can't play {} games yet."
 msgstr ""
 
@@ -750,10 +770,6 @@ msgstr ""
 msgid "The core download did not match its checksum"
 msgstr ""
 
-#: crates/romp-app/src/credentials.rs
-msgid "Could not store the sign-in in the keychain: {e}"
-msgstr ""
-
 #: crates/romp-app/src/details.rs
 msgid "Jan"
 msgstr ""
@@ -876,6 +892,10 @@ msgstr ""
 
 #: crates/romp-app/src/details.rs
 msgid "Rating"
+msgstr ""
+
+#: crates/romp-app/src/details.rs
+msgid "Folder"
 msgstr ""
 
 #: crates/romp-app/src/details.rs

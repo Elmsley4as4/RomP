@@ -131,6 +131,10 @@ pub struct Controls {
     pads: Vec<(Option<u8>, PadState)>,
     sent: [PadState; PLAYERS as usize],
     slot: u8,
+    /// Whether L2 rewinds this game rather than reaching the emulator.
+    rewind: bool,
+    /// Whether the button was down last time the game was told anything.
+    rewinding: bool,
 }
 
 impl Default for Controls {
@@ -141,9 +145,15 @@ impl Default for Controls {
             pads: Vec::new(),
             sent: [PadState::default(); PLAYERS as usize],
             slot: 1,
+            rewind: false,
+            rewinding: false,
         }
     }
 }
+
+/// L2 as a joypad bit, and where its travel sits in `PadState::axes`.
+const L2_BIT: u16 = 1 << L2;
+const L2_AXIS: usize = 4;
 
 impl Controls {
     pub fn set_keyboard_player(&mut self, player: Option<u8>) -> Vec<Command> {
@@ -195,6 +205,12 @@ impl Controls {
         self.push()
     }
 
+    /// Hands L2 to the rewind, or gives it back to the emulator.
+    pub fn set_rewind(&mut self, on: bool) -> Vec<Command> {
+        self.rewind = on;
+        self.push()
+    }
+
     pub fn release_all(&mut self) -> Vec<Command> {
         self.keyboard = Pad::default();
         self.pads.clear();
@@ -224,8 +240,16 @@ impl Controls {
 
     fn push(&mut self) -> Vec<Command> {
         let mut commands = Vec::new();
+        let mut l2 = false;
         for player in 1..=PLAYERS {
-            let state = self.merged(player);
+            let mut state = self.merged(player);
+            // L2 belongs to the rewind, so the emulator never sees the button or its
+            // travel — a game that has no use for it loses nothing.
+            if self.rewind {
+                l2 |= state.buttons & L2_BIT != 0;
+                state.buttons &= !L2_BIT;
+                state.axes[L2_AXIS] = 0;
+            }
             let slot = &mut self.sent[player as usize - 1];
             if *slot != state {
                 *slot = state;
@@ -234,6 +258,10 @@ impl Controls {
                     state,
                 }));
             }
+        }
+        if l2 != self.rewinding {
+            self.rewinding = l2;
+            commands.push(Command::Send(AppMsg::RewindHold(l2)));
         }
         commands
     }
@@ -578,6 +606,68 @@ mod tests {
                     port: 2,
                     state: buttons(1 << A)
                 }),
+            ]
+        );
+    }
+
+    #[test]
+    fn l2_rewinds_instead_of_reaching_the_game() {
+        let mut controls = Controls::default();
+        assert!(controls.set_rewind(true).is_empty());
+        let held = PadState {
+            buttons: 1 << L2 | 1 << B,
+            axes: [0, 0, 0, 0, 12_000, 0],
+        };
+        assert_eq!(
+            controls.set_gamepads(vec![(Some(1), held)]),
+            [
+                // The button and its travel stay with the frontend; B reaches the game.
+                Command::Send(AppMsg::Pad {
+                    port: 0,
+                    state: PadState {
+                        buttons: 1 << B,
+                        axes: [0; 6]
+                    }
+                }),
+                Command::Send(AppMsg::RewindHold(true)),
+            ]
+        );
+        assert!(controls.set_gamepads(vec![(Some(1), held)]).is_empty());
+        assert_eq!(
+            controls.set_gamepads(vec![(Some(1), buttons(1 << B))]),
+            [Command::Send(AppMsg::RewindHold(false))]
+        );
+    }
+
+    #[test]
+    fn l2_reaches_the_game_when_the_rewind_is_off() {
+        let mut controls = Controls::default();
+        let held = PadState {
+            buttons: 1 << L2,
+            axes: [0, 0, 0, 0, 12_000, 0],
+        };
+        assert_eq!(
+            controls.set_gamepads(vec![(Some(1), held)]),
+            [Command::Send(AppMsg::Pad {
+                port: 0,
+                state: held
+            })]
+        );
+    }
+
+    #[test]
+    fn turning_the_rewind_off_lets_go_of_a_held_l2() {
+        let mut controls = Controls::default();
+        controls.set_rewind(true);
+        controls.set_gamepads(vec![(Some(1), buttons(1 << L2))]);
+        assert_eq!(
+            controls.set_rewind(false),
+            [
+                Command::Send(AppMsg::Pad {
+                    port: 0,
+                    state: buttons(1 << L2)
+                }),
+                Command::Send(AppMsg::RewindHold(false)),
             ]
         );
     }

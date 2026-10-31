@@ -276,23 +276,15 @@ msgid "Delete download"
 msgstr ""
 
 #: crates/romp-app/ui/app.slint
-msgid "♥ In favorites"
+msgid "Emulator: {}"
 msgstr ""
 
 #: crates/romp-app/ui/app.slint
-msgid "♡ Add to favorites"
+msgid "Rewind: L2"
 msgstr ""
 
 #: crates/romp-app/ui/app.slint
-msgid "Collections…"
-msgstr ""
-
-#: crates/romp-app/ui/app.slint
-msgid "You don't have any collections yet."
-msgstr ""
-
-#: crates/romp-app/ui/app.slint
-msgid "New collection…"
+msgid "Rewind: Off"
 msgstr ""
 
 #: crates/romp-app/ui/app.slint

@@ -97,7 +97,8 @@ impl Controller {
     pub(super) fn show_emulator(&self, detail: &GameDetail) {
         let Some(ui) = self.ui() else { return };
         let cores = crate::cores::candidates(&detail.platform_slug);
-        let running = core_for_game(detail.id, &detail.platform_slug, &detail.fs_path).map(|c| c.id);
+        let running =
+            core_for_game(detail.id, &detail.platform_slug, &detail.fs_path).map(|c| c.id);
         let names: Vec<slint::SharedString> = cores.iter().map(|c| c.name.into()).collect();
         let current = cores
             .iter()
@@ -116,7 +117,8 @@ impl Controller {
         if cores.len() < 2 {
             return;
         }
-        let running = core_for_game(detail.id, &detail.platform_slug, &detail.fs_path).map(|c| c.id);
+        let running =
+            core_for_game(detail.id, &detail.platform_slug, &detail.fs_path).map(|c| c.id);
         let current = cores
             .iter()
             .position(|c| Some(c.id) == running)
@@ -156,7 +158,45 @@ impl Controller {
             &crate::cores::game_choices_json(),
         );
         self.show_emulator(&detail);
+        self.show_rewind(&detail);
         self.game_status(detail.id, tr!("This game now runs on {}.", core.name));
+    }
+
+    /// Fills the detail page's rewind row: whether L2 rewinds this game.
+    pub(super) fn show_rewind(&self, detail: &GameDetail) {
+        let Some(ui) = self.ui() else { return };
+        ui.set_game_rewind_on(crate::rewind::enabled_for(detail.id, &detail.platform_slug));
+    }
+
+    /// Hands L2 to the rewind, or back to the game, from here on.
+    pub(super) fn toggle_rewind(&self) {
+        let Some(detail) = self.current_game() else {
+            return;
+        };
+        let on = crate::rewind::toggled(detail.id, &detail.platform_slug);
+        if !crate::rewind::set_game_rewind(detail.id, &detail.platform_slug, on) {
+            self.game_status(detail.id, tr!("That setting could not be saved."));
+            return;
+        }
+        self.shared.store.lock().unwrap().set(
+            crate::console_settings::REWIND_GAMES_KEY,
+            &crate::rewind::choices_json(),
+        );
+        tracing::info!(
+            game = detail.id,
+            platform = %detail.platform_slug,
+            on,
+            "rewind choice clicked"
+        );
+        self.show_rewind(&detail);
+        self.game_status(
+            detail.id,
+            if on {
+                tr!("L2 now rewinds this game.")
+            } else {
+                tr!("L2 belongs to the game again.")
+            },
+        );
     }
 
     pub(super) fn current_game(&self) -> Option<GameDetail> {
@@ -379,6 +419,7 @@ impl Controller {
         )));
         ui.set_game_downloaded(downloaded_path(&detail).is_some());
         self.show_emulator(&detail);
+        self.show_rewind(&detail);
         ui.set_game_busy(busy);
         if busy {
             ui.set_game_progress(self.download_fraction.get());
@@ -1105,6 +1146,7 @@ impl Controller {
             load_slot,
             auto_state: reliable,
             states,
+            rewind: states && crate::rewind::enabled_for(detail.id, &detail.platform_slug),
             mappings: self.mappings.clone(),
             nintendo: crate::cores::is_nintendo(&detail.platform_slug),
             mouse: core_for_game(detail.id, &detail.platform_slug, &detail.fs_path)

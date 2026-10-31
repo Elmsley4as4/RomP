@@ -51,6 +51,8 @@ pub struct GameOptions {
     pub auto_state: bool,
     /// Whether the emulator's save states bring a game back; without them there are no slots.
     pub states: bool,
+    /// Whether L2 rewinds this game.
+    pub rewind: bool,
     pub mappings: Rc<RefCell<Mappings>>,
     pub nintendo: bool,
     pub mouse: bool,
@@ -157,6 +159,7 @@ pub fn run(
             load_slot: None,
             auto_state: states,
             states,
+            rewind: states,
             mappings: Rc::default(),
             nintendo: false,
             mouse: false,
@@ -837,6 +840,11 @@ impl Game {
         match step {
             crate::smoke::Step::Wait => {}
             crate::smoke::Step::SaveState => self.save_slot(crate::smoke::SLOT),
+            crate::smoke::Step::Rewind => {
+                self.send(&AppMsg::Rewind(true));
+                self.send(&AppMsg::RewindHold(true));
+            }
+            crate::smoke::Step::ReleaseRewind => self.send(&AppMsg::RewindHold(false)),
             crate::smoke::Step::Finish => (self.finish)(),
         }
     }
@@ -1455,6 +1463,11 @@ pub fn launch(
         .controls
         .borrow_mut()
         .set_keyboard_player(opts.players.borrow().player(KEYBOARD));
+    // L2 rewinds where the game has no use for the button; the emulator is told which
+    // so it knows whether to keep a history at all.
+    let rewind = opts.rewind && opts.states;
+    game.run_commands(game.controls.borrow_mut().set_rewind(rewind));
+    game.send(&AppMsg::Rewind(rewind));
     for (i, window) in game.windows.iter().enumerate() {
         wire(window, &game, i == 1);
     }
@@ -1607,7 +1620,7 @@ pub fn launch(
                 if let (Some(smoke), SessionEvent::Runner(RunnerMsg::StateWritten { slot, ok })) =
                     (&game.smoke, &event)
                 {
-                    game.smoke_step(smoke.borrow().state_written(*slot, *ok, &save_dir));
+                    game.smoke_step(smoke.borrow_mut().state_written(*slot, *ok, &save_dir));
                 }
                 if let (Some(smoke), SessionEvent::Ended { code, .. }) = (&game.smoke, &event) {
                     if *code != Some(0) {

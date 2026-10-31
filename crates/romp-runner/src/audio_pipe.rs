@@ -15,6 +15,8 @@ pub struct AudioPipe {
     conversion: f64,
     rate: RateControl,
     volume: u8,
+    /// While the sound is off the core's samples are dropped: rewinding plays no sound.
+    muted: bool,
     frames: u64,
 }
 
@@ -27,6 +29,7 @@ impl Default for AudioPipe {
             conversion: 1.0,
             rate: RateControl::default(),
             volume: 100,
+            muted: false,
             frames: 0,
         }
     }
@@ -60,6 +63,11 @@ impl AudioPipe {
         self.volume = volume;
     }
 
+    /// Silence while the frontend plays back history; the buffer is refilled on release.
+    pub fn set_muted(&mut self, muted: bool) {
+        self.muted = muted;
+    }
+
     pub fn take_frames(&mut self) -> u64 {
         std::mem::take(&mut self.frames)
     }
@@ -82,7 +90,7 @@ pub fn push(audio: &SharedAudio, samples: &[i16]) -> usize {
     let prepared = {
         let mut pipe = audio.lock();
         pipe.frames += frames as u64;
-        if pipe.producer.is_none() {
+        if pipe.producer.is_none() || pipe.muted {
             return frames;
         }
         let ratio = {

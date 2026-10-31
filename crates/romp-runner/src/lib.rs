@@ -9,6 +9,7 @@ pub mod input;
 pub mod ipc;
 pub mod perf;
 pub mod resample;
+pub mod rewind;
 pub mod sandbox;
 #[cfg(target_os = "linux")]
 mod sandbox_linux;
